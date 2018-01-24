@@ -11,6 +11,8 @@ import scala.util.Try
 
 trait Command {
 
+  val info: String
+
   def execute(view: CurrentView[EncryHistory, UtxoState, EncryWallet, EncryMempool], args: Array[String]): Try[Unit]
 
 }

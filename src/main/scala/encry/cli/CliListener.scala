@@ -28,6 +28,7 @@ case class CliListener(nodeViewHolderRef: ActorRef, settings: EncryAppSettings) 
     "-stop" -> nodeStop
     )
   )
+
   commands.update("wallet", mutable.HashMap(
     "-addKey" -> keyKeeperAddKey,
     "-init" -> keyKeeperInit,
@@ -36,6 +37,10 @@ case class CliListener(nodeViewHolderRef: ActorRef, settings: EncryAppSettings) 
     )
   )
 
+  commands.update("app", mutable.HashMap(
+    "-help" -> appHelp
+    )
+  )
 
   override def receive : Receive = {
 
