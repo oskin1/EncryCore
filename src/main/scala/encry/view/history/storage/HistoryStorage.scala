@@ -7,19 +7,20 @@ import scorex.core.ModifierId
 import scorex.core.serialization.Serializer
 import scorex.core.utils.ScorexLogging
 
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
-class HistoryStorage(val db : Store) extends ScorexLogging with AutoCloseable {
+class HistoryStorage(val db: Store) extends ScorexLogging with AutoCloseable {
 
-  def modifierById(id: ModifierId): Option[EncryPersistentModifier] = db.get(ByteArrayWrapper(id)).flatMap { bBytes =>
-    HistoryModifierSerializer.parseBytes(bBytes.data) match {
-      case Success(b) =>
-        Some(b)
-      case Failure(e) =>
-        log.warn(s"Failed to parse block from db (bytes are: ${bBytes.data.mkString("-")}): ", e)
-        None
+  def modifierById(id: ModifierId): Option[EncryPersistentModifier] =
+    db.get(ByteArrayWrapper(id)).flatMap { bBytes =>
+      HistoryModifierSerializer.parseBytes(bBytes.data) match {
+        case Success(b) =>
+          Some(b)
+        case Failure(e) =>
+          log.warn(s"Failed to parse block from db (bytes: ${bBytes.data.mkString("-")}): ", e)
+          None
+      }
     }
-  }
 
   def contains(id: ModifierId): Boolean = db.get(ByteArrayWrapper(id)).isDefined
 
@@ -40,5 +41,4 @@ class HistoryStorage(val db : Store) extends ScorexLogging with AutoCloseable {
   }
 
   def serializer: Serializer[EncryPersistentModifier] = HistoryModifierSerializer
-
 }

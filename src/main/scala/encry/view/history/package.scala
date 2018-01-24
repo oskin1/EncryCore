@@ -7,5 +7,4 @@ package object history {
   object Height extends TaggedType[Int]
 
   type Height = Height.Type
-
 }

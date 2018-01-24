@@ -1,64 +1,49 @@
 package encry.view.mempool
 
-import encry.modifiers.mempool.{EncryBaseTransaction, EncryPaymentTransaction}
+import encry.modifiers.mempool.EncryBaseTransaction
+import encry.settings.EncryAppSettings
 import encry.view.mempool.EncryMempool._
 import scorex.core.ModifierId
+import scorex.core.transaction.MemoryPool
 import scorex.core.utils.ScorexLogging
 
-import scala.collection.mutable
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.duration._
+import scala.collection.concurrent.TrieMap
 import scala.util.{Failure, Success, Try}
 
-class EncryMempool private[mempool](val unconfirmed: mutable.ListMap[TxKey, EncryBaseTransaction])
-  extends EncryBaseMemoryPool[EncryMempool] with ScorexLogging {
+class EncryMempool private[mempool](val unconfirmed: TrieMap[TxKey, EncryBaseTransaction],
+                                    settings: EncryAppSettings)
+  extends MemoryPool[EncryBaseTransaction, EncryMempool] with EncryMempoolReader with ScorexLogging {
+
+  // TODO: Cleanup():
+  // TODO: <-- RemoveExpired()
+  // TODO: <-- RemoveCheapest()
 
   override type NVCT = EncryMempool
-
-  /**
-    * Map stores current state of waiting for query building
-    * value - promise of result and set of all transactions of request
-    * key - set of transactions that are waiting for the assembly
-    */
-  private[mempool] var waitedForAssembly: Map[Set[TxKey], (Promise[MemPoolResponse], Seq[ModifierId])] = Map.empty
-
-  private def key(id: ModifierId): TxKey = {
-    new mutable.WrappedArray.ofByte(id)
-  }
-
-  override def getById(id: ModifierId): Option[EncryBaseTransaction] = unconfirmed.get(key(id))
-
-  override def contains(id: ModifierId): Boolean = unconfirmed.contains(key(id))
-
-  override def getAll(ids: Seq[ModifierId]): Seq[EncryBaseTransaction] = ids.flatMap(getById)
 
   override def put(tx: EncryBaseTransaction): Try[EncryMempool] = put(Seq(tx))
 
   override def put(txs: Iterable[EncryBaseTransaction]): Try[EncryMempool] = {
-    if (!txs.forall { tx =>
-      !unconfirmed.contains(key(ModifierId @@ tx.id)) &&
-        tx.semanticValidity.isSuccess
-    }) Failure(new Error("Illegal transaction putting!"))
-    else Success(putWithoutCheck(txs))
+    if (!txs.forall(tx => !unconfirmed.contains(key(tx.id)) && tx.semanticValidity.isSuccess))
+      Failure(new Error("Failed to put transaction into pool"))
+    else
+      Success(putWithoutCheck(txs))
   }
 
   override def putWithoutCheck(txs: Iterable[EncryBaseTransaction]): EncryMempool = {
-    txs.foreach(tx => unconfirmed.put(key(ModifierId @@ tx.id), tx))
+    txs.foreach(tx => unconfirmed.put(key(tx.id), tx))
     completeAssembly(txs)
-
-    // TODO: Cleanup?
     this
   }
 
   override def remove(tx: EncryBaseTransaction): EncryMempool = {
-    unconfirmed.remove(key(ModifierId @@ tx.id))
+    unconfirmed.remove(key(tx.id))
     this
   }
 
-  override def take(limit: Int): Iterable[EncryBaseTransaction] =
-    unconfirmed.values.toSeq.take(limit)
+  override def take(limit: Int): Iterable[EncryBaseTransaction] = unconfirmed.values.toSeq.take(limit)
 
-  // TODO: What should this method do?
-  override def filter(txs: Seq[EncryBaseTransaction]): EncryMempool = this
+  def takeAllUnordered: Iterable[EncryBaseTransaction] = unconfirmed.values.toSeq
 
   override def filter(condition: (EncryBaseTransaction) => Boolean): EncryMempool = {
     unconfirmed.retain { (_, v) =>
@@ -67,30 +52,8 @@ class EncryMempool private[mempool](val unconfirmed: mutable.ListMap[TxKey, Encr
     this
   }
 
-  override def size: Int = unconfirmed.size
-
-  private def completeAssembly(txs: Iterable[EncryBaseTransaction]): Unit = synchronized {
-    val txsIds = txs.map(tx => key(ModifierId @@ tx.id))
-    val newMap = waitedForAssembly.flatMap(p => {
-      val ids = p._1
-      val newKey = ids -- txsIds
-      // filtering fully-built queries and completing of a promise
-      if (newKey.isEmpty) {
-        val (promise, allIds) = p._2
-        promise complete Success(allIds.map(id => getById(id).get))
-        None
-      } else {
-        Some(newKey -> p._2)
-      }
-    })
-    waitedForAssembly = newMap
-  }
-
-  def waitForAll(ids: MemPoolRequest): Future[MemPoolResponse] = synchronized {
-    val promise = Promise[Seq[EncryBaseTransaction]]
-    waitedForAssembly = waitedForAssembly.updated(ids.map(id => key(id)).toSet, (promise, ids))
-    promise.future
-  }
+  def removeExpired(currentTime: Long): Unit =
+    filter(tx => (currentTime - tx.timestamp).millis > settings.nodeSettings.utxMaxAge)
 }
 
 object EncryMempool {
@@ -101,5 +64,5 @@ object EncryMempool {
 
   type MemPoolResponse = Seq[EncryBaseTransaction]
 
-  def empty: EncryMempool = new EncryMempool(mutable.ListMap.empty)
+  def empty(settings: EncryAppSettings): EncryMempool = new EncryMempool(TrieMap.empty, settings)
 }

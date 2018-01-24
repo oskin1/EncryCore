@@ -1,13 +1,12 @@
 package encry.modifiers.state.box.proposition
 
-import encry.crypto.Address
+import encry.account.Address
 import scorex.core.serialization.Serializer
-import scorex.core.transaction.box.proposition.PublicKey25519Proposition.{ChecksumLength, calcCheckSum}
+import scorex.core.transaction.box.proposition.PublicKey25519Proposition.{ChecksumLength, calcCheckSum, _}
 import scorex.core.transaction.box.proposition.{Proposition, PublicKey25519Proposition}
 import scorex.crypto.encode.Base58
-import scorex.core.transaction.box.proposition.PublicKey25519Proposition._
 
-import scala.util.{Failure, Success, Try}
+import scala.util.Try
 
 // Holds the wallet address, which responds to some `publicKey`.
 // Should be used with `scorex.core.transaction.box.proposition.PublicKey25519Proposition`.
@@ -19,16 +18,16 @@ case class AddressProposition(address: Address) extends Proposition {
 
   override def serializer: Serializer[AddressProposition] = AddressPropositionSerializer
 
-  override lazy val bytes: Array[Byte] = AddressProposition.addrBytes(address)
-
+  override lazy val bytes: Array[Byte] = AddressProposition.getAddrBytes(address)
 }
 
 object AddressProposition {
 
-  def addrBytes(address: Address): Array[Byte] = Base58.decode(address).get
+  def getAddrBytes(address: Address): Array[Byte] = Base58.decode(address).get
 
-  def validAddress(address: String): Boolean = {
-    val addrBytes: Array[Byte] = Base58.decode(address).get
+  // TODO: Use this in transaction.semanticValidity.
+  def validAddress(address: Address): Boolean = {
+    val addrBytes: Array[Byte] = getAddrBytes(address)
       if (addrBytes.length != AddressLength) false
       else {
         val checkSum = addrBytes.takeRight(ChecksumLength)

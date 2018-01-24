@@ -1,12 +1,14 @@
 package encry.modifiers.history.block.payload
 
+import encry.modifiers.mempool.EncryBaseTransaction
 import encry.modifiers.{EncryPersistentModifier, ModifierWithDigest}
-import scorex.core.{EphemerealNodeViewModifier, ModifierId}
+import scorex.core.transaction.box.proposition.Proposition
+import scorex.core.{ModifierId, TransactionsCarryingPersistentNodeViewModifier}
 
 trait EncryBaseBlockPayload
-  extends EncryPersistentModifier with ModifierWithDigest {
+  extends TransactionsCarryingPersistentNodeViewModifier[Proposition, EncryBaseTransaction]
+    with EncryPersistentModifier
+    with ModifierWithDigest {
 
   val headerId: ModifierId
-
-  val transactions: Seq[EphemerealNodeViewModifier]
 }

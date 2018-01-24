@@ -4,7 +4,11 @@ version := "0.1"
 
 scalaVersion := "2.12.4"
 
+<<<<<<< Updated upstream
 val scorexVersion = "2.0.0-RC3-256-g6bc4705-SNAPSHOT"
+=======
+val scorexVersion = "cf146d15-SNAPSHOT"
+>>>>>>> Stashed changes
 
 resolvers ++= Seq("Sonatype Releases" at "https://oss.sonatype.org/content/repositories/releases/",
   "SonaType" at "https://oss.sonatype.org/content/groups/public",

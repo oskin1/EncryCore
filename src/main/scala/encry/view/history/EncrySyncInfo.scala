@@ -1,15 +1,15 @@
 package encry.view.history
 
 import encry.modifiers.history.block.header.EncryBlockHeader
-import scorex.core.ModifierId
+import scorex.core.{ModifierId, NodeViewModifier}
 import scorex.core.consensus.History.ModifierIds
 import scorex.core.consensus.SyncInfo
+import scorex.core.network.message.SyncInfoMessageSpec
 import scorex.core.serialization.Serializer
 
 import scala.util.Try
 
-case class EncrySyncInfo(override val answer: Boolean,
-                         lastHeaderIds: Seq[ModifierId]) extends SyncInfo {
+case class EncrySyncInfo(lastHeaderIds: Seq[ModifierId]) extends SyncInfo {
 
   override type M = EncrySyncInfo
 
@@ -24,7 +24,17 @@ object EncrySyncInfo {
 
 object EncrySyncInfoSerializer extends Serializer[EncrySyncInfo] {
 
-  override def toBytes(obj: EncrySyncInfo): Array[Byte] = ???
+  override def toBytes(obj: EncrySyncInfo): Array[Byte] = {
+    scorex.core.utils.concatFixLengthBytes(obj.lastHeaderIds)
+  }
 
-  override def parseBytes(bytes: Array[Byte]): Try[EncrySyncInfo] = ???
+  override def parseBytes(bytes: Array[Byte]): Try[EncrySyncInfo] = Try {
+    require(bytes.length <= EncrySyncInfo.MaxBlockIds * NodeViewModifier.ModifierIdSize + 1)
+
+    val ids = ModifierId @@ bytes.grouped(NodeViewModifier.ModifierIdSize).toSeq
+
+    EncrySyncInfo(ids)
+  }
 }
+
+object EncrySyncInfoMessageSpec extends SyncInfoMessageSpec[EncrySyncInfo](EncrySyncInfoSerializer.parseBytes)
