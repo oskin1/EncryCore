@@ -14,11 +14,13 @@ import encry.view.state.{DigestState, EncryState, UtxoState}
 import encry.view.wallet.EncryWallet
 import scorex.core.serialization.Serializer
 import scorex.core.transaction.box.proposition.Proposition
-import scorex.core.{ModifierTypeId, NodeViewHolder, NodeViewModifier}
+import scorex.core.utils.NetworkTimeProvider
+import scorex.core.{ModifierId, ModifierTypeId, NodeViewHolder, NodeViewModifier}
 
 import scala.util.{Failure, Success}
 
-abstract class EncryNodeViewHolder[StateType <: EncryState[StateType]](settings: EncryAppSettings)
+abstract class EncryNodeViewHolder[StateType <: EncryState[StateType]](settings: EncryAppSettings,
+                                                                       timeProvider: NetworkTimeProvider)
   extends NodeViewHolder[Proposition, EncryBaseTransaction, EncryPersistentModifier] {
 
   // TODO: `settings.scorexSettings.network.networkChunkSize` should be used here.
@@ -59,7 +61,6 @@ abstract class EncryNodeViewHolder[StateType <: EncryState[StateType]](settings:
 
     val state = {
       if (settings.nodeSettings.ADState) EncryState.generateGenesisDigestState(stateDir, settings.nodeSettings)
-//      else if (settings.testingSettings.transactionGeneration) EncryState.genTestingUtxoState(dir, Some(self))._1
       else EncryState.genGenesisUtxoState(stateDir, idxDir, Some(self))._1
     }.asInstanceOf[MS]
 
@@ -68,7 +69,7 @@ abstract class EncryNodeViewHolder[StateType <: EncryState[StateType]](settings:
 
     val wallet = EncryWallet.readOrGenerate(settings)
 
-    val memPool = EncryMempool.empty(settings)
+    val memPool = EncryMempool.empty(settings, timeProvider)
 
     (history, state, wallet, memPool)
   }
@@ -82,42 +83,52 @@ abstract class EncryNodeViewHolder[StateType <: EncryState[StateType]](settings:
       //todo: ensure that history is in certain mode
       val history = EncryHistory.readOrGenerate(settings)
       val wallet = EncryWallet.readOrGenerate(settings)
-      val memPool = EncryMempool.empty(settings)
+      val memPool = EncryMempool.empty(settings, timeProvider)
       val state = restoreConsistentState(stateIn.asInstanceOf[MS], history)
       (history, state, wallet, memPool)
     }
   }
 
-  private def restoreConsistentState(state: StateType, history: EncryHistory) = {
-    // TODO: Do we need more than 1 block here?
-    history.bestFullBlockOpt.map { fb =>
-      if (!(state.version sameElements fb.id)) {
-        state.applyModifier(fb) match {
-          case Success(s) =>
-            log.info(s"State and History are inconsistent on startup. Applied missed modifier ${fb.encodedId}")
-            s
-          case Failure(e) =>
-            // TODO: Catch errors here.
-            log.error(s"Failed to apply missed modifier ${fb.encodedId}. Try to resync from genesis", e)
-            EncryApp.forceStopApplication(500)
-            state
+  private def restoreConsistentState(state: StateType, history: EncryHistory): StateType = {
+    if (history.bestFullBlockIdOpt.isEmpty) {
+      state
+    } else {
+      val stateBestBlockId = if (state.version sameElements EncryState.genesisStateVersion) None else Some(state.version)
+      val hFrom = stateBestBlockId.flatMap(id => history.typedModifierById[EncryBlockHeader](ModifierId @@ id))
+      val fbFrom = hFrom.flatMap(h => history.getFullBlock(h))
+      history.fullBlocksAfter(fbFrom).map { toApply =>
+        if (toApply.nonEmpty) {
+          log.info(s"State and History are inconsistent on startup. Going to apply ${toApply.length} modifiers")
+        } else {
+          assert(stateBestBlockId.get sameElements history.bestFullBlockIdOpt.get,
+            "State version should always equal to best full block id.")
+          log.info(s"State and History are consistent on startup.")
         }
-      } else {
-        state
-      }
-    }.getOrElse(state)
+        toApply.foldLeft(state) { (s, m) =>
+          s.applyModifier(m) match {
+            case Success(newState) =>
+              newState
+            case Failure(e) =>
+              throw new Error(s"Failed to apply missed modifier ${m.encodedId}")
+          }
+        }
+      }.recoverWith { case e =>
+        log.error("Failed to recover state, try to resync from genesis manually", e)
+        EncryApp.forceStopApplication(500)
+      }.get
+    }
   }
 }
 
-private[view] class DigestEncryNodeViewHolder(settings: EncryAppSettings)
-  extends EncryNodeViewHolder[DigestState](settings)
+private[view] class DigestEncryNodeViewHolder(settings: EncryAppSettings, timeProvider: NetworkTimeProvider)
+  extends EncryNodeViewHolder[DigestState](settings, timeProvider)
 
-private[view] class UtxoEncryNodeViewHolder(settings: EncryAppSettings)
-  extends EncryNodeViewHolder[UtxoState](settings)
+private[view] class UtxoEncryNodeViewHolder(settings: EncryAppSettings, timeProvider: NetworkTimeProvider)
+  extends EncryNodeViewHolder[UtxoState](settings, timeProvider)
 
 object EncryNodeViewHolder {
-  def createActor(system: ActorSystem, settings: EncryAppSettings): ActorRef = {
-    if (settings.nodeSettings.ADState) system.actorOf(Props.create(classOf[DigestEncryNodeViewHolder], settings))
-    else system.actorOf(Props.create(classOf[UtxoEncryNodeViewHolder], settings))
+  def createActor(system: ActorSystem, settings: EncryAppSettings, timeProvider: NetworkTimeProvider): ActorRef = {
+    if (settings.nodeSettings.ADState) system.actorOf(Props.create(classOf[DigestEncryNodeViewHolder], settings, timeProvider))
+    else system.actorOf(Props.create(classOf[UtxoEncryNodeViewHolder], settings, timeProvider))
   }
 }

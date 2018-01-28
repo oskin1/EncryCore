@@ -1,14 +1,11 @@
 package encry.cli
 
-import java.util.concurrent.Future
-
 import akka.actor.{Actor, ActorRef}
 import akka.pattern._
 import akka.util.Timeout
-import encry.cli.CliListener.StartListen
-import encry.cli.commandObjects._
-import encry.consensus.PowCandidateBlock
-import encry.settings.{EncryAppSettings, NodeSettings}
+import encry.cli.CliListener.StartListening
+import encry.cli.commands._
+import encry.settings.EncryAppSettings
 import encry.view.history.EncryHistory
 import encry.view.mempool.EncryMempool
 import encry.view.state.UtxoState
@@ -18,33 +15,25 @@ import scorex.core.utils.ScorexLogging
 
 import scala.collection.mutable
 import scala.io.StdIn._
-import scala.util.{Success, Try}
 
-case class CliListener(nodeViewHolderRef: ActorRef, settings: EncryAppSettings) extends Actor with ScorexLogging{
+case class CliListener(nodeViewHolderRef: ActorRef, settings: EncryAppSettings) extends Actor with ScorexLogging {
 
-  val commands : mutable.HashMap[String,mutable.HashMap[String, Command]] = mutable.HashMap.empty
+  val commands: mutable.HashMap[String,mutable.HashMap[String, Command]] = mutable.HashMap.empty
 
   commands.update("node", mutable.HashMap(
-    "-stop" -> nodeStop
-    )
-  )
+    "-stop" -> NodeShutdown
+    ))
 
   commands.update("wallet", mutable.HashMap(
-    "-addKey" -> keyKeeperAddKey,
-    "-init" -> keyKeeperInit,
-    "-getKeys" -> keyKeeperGetKeys,
-    "-balance" -> walletBalance
-    )
-  )
+    "-addKey" -> KeyManagerAddKey,
+    "-init" -> KeyManagerInit,
+    "-getKeys" -> KeyManagerGetKeys,
+    "-balance" -> GetBalance
+    ))
 
-  commands.update("app", mutable.HashMap(
-    "-help" -> appHelp
-    )
-  )
+  override def receive: Receive = {
 
-  override def receive : Receive = {
-
-    case StartListen =>
+    case StartListening =>
       while (true) {
         val input = readLine()
         commands.get(parseCommand(input).head) match {
@@ -55,7 +44,7 @@ case class CliListener(nodeViewHolderRef: ActorRef, settings: EncryAppSettings) 
                 implicit val timeout: Timeout = Timeout(settings.scorexSettings.restApi.timeout)
                 nodeViewHolderRef ?
                   GetDataFromCurrentView[EncryHistory, UtxoState, EncryWallet, EncryMempool, Unit] { view =>
-                    cmd.execute(view,command.split("="))
+                    cmd.execute(view, command.split("="))
                   }
               case None =>
                 println("Unsupported command. Type 'app -help' to get commands list")
@@ -78,5 +67,5 @@ case class CliListener(nodeViewHolderRef: ActorRef, settings: EncryAppSettings) 
 
 object CliListener {
 
-  case object StartListen
+  case object StartListening
 }

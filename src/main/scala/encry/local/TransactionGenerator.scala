@@ -22,9 +22,9 @@ import scala.util.Random
 class TransactionGenerator(viewHolder: ActorRef, settings: TestingSettings, timeProvider: NetworkTimeProvider)
   extends Actor with ScorexLogging {
 
-  var txGenerator: Cancellable = _
+  val txGenerator: Cancellable = _
 
-  var isStarted = false
+  val isStarted = false
 
   private lazy val factory = TestHelper
   private lazy val keys = factory.getOrGenerateKeys(factory.Props.keysFilePath)

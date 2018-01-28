@@ -8,9 +8,10 @@ import scala.util.{Failure, Success, Try}
 object OpenProposition extends ProofOfKnowledgeProposition[Nothing] {
 
   override type M = OpenProposition.type
-
+  
   override lazy val serializer: Serializer[OpenProposition.type] = OpenPropositionSerializer
 }
+
 
 object OpenPropositionSerializer extends Serializer[OpenProposition.type] {
 

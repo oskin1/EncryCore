@@ -1,9 +1,7 @@
 package encry.settings
 
-case class KeyKeeperSettings(
-                              path: String,
+case class KeyManagerSettings(path: String,
                               lock : Boolean,
                               cypherAlgorithm : String,
                               hashAttempts : Int,
-                              keyUnlockAttempts : Int
-                            )
+                              keyUnlockAttempts : Int)

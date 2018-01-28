@@ -3,7 +3,7 @@ package encry
 import akka.actor.{ActorRef, Props}
 import encry.api.http.routes.{HistoryApiRoute, InfoRoute, TransactionsApiRoute}
 import encry.cli.CliListener
-import encry.cli.CliListener.StartListen
+import encry.cli.CliListener.StartListening
 import encry.local.TransactionGenerator.StartGeneration
 import encry.local.mining.EncryMiner
 import encry.local.mining.EncryMiner.StartMining
@@ -41,7 +41,7 @@ class EncryApp(args: Seq[String]) extends Application {
 
   override protected lazy val additionalMessageSpecs: Seq[MessageSpec[_]] = Seq(EncrySyncInfoMessageSpec)
 
-  override val nodeViewHolderRef: ActorRef = EncryNodeViewHolder.createActor(actorSystem, encrySettings)
+  override val nodeViewHolderRef: ActorRef = EncryNodeViewHolder.createActor(actorSystem, encrySettings, timeProvider)
 
   val readersHolderRef: ActorRef = actorSystem.actorOf(Props(classOf[EncryViewReadersHolder], nodeViewHolderRef))
 
@@ -78,13 +78,15 @@ class EncryApp(args: Seq[String]) extends Application {
     txGen ! StartGeneration
   }
 
-  cliListenerRef ! StartListen
+  cliListenerRef ! StartListening
 }
 
 object EncryApp extends App {
 
   new EncryApp(args).run()
 
-  def forceStopApplication(code: Int = 1): Unit =
-    new Thread(() => System.exit(code), "encry-shutdown-thread").start()
+  def forceStopApplication(code: Int = 1) = {
+    new Thread(() => System.exit(code), "ergo-platform-shutdown-thread").start()
+    throw new Error("Exit")
+  }
 }
