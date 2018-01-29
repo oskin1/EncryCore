@@ -47,11 +47,14 @@ trait UtxoStateReader extends StateIndexReader with ScorexLogging {
       case _ => None
     }
 
-  def getOpenBoxesAtHeight(height: Height): Seq[OpenBox] =
-    boxesByAddress(StateIndexReader.openBoxesKey)
+  def getAvailableOpenBoxesAt(height: Height): Seq[OpenBox] =
+    boxesByAddress(StateIndexReader.openBoxesAddress)
       .map(bxs => bxs.filter(bx => bx.isInstanceOf[OpenBox] &&
         bx.asInstanceOf[OpenBox].proposition.height <= height)
         .map(_.asInstanceOf[OpenBox])).getOrElse(Seq())
+
+  def getOpenBoxIdsAtHeight(height: Height): Seq[ADKey] =
+    boxIdsByAddress(StateIndexReader.openBoxesAddress).getOrElse(Seq())
 
   def getRandomBox: Option[EncryBaseBox] =
     persistentProver.avlProver.randomWalk().map(_._1).flatMap(boxById)

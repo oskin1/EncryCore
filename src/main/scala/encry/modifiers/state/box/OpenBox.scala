@@ -13,7 +13,7 @@ import scorex.crypto.authds.ADKey
 import scorex.crypto.encode.Base58
 import scorex.crypto.hash.Digest32
 
-import scala.util.{Success, Try}
+import scala.util.{Failure, Success, Try}
 
 case class OpenBox(override val proposition: HeightProposition,
                    override val nonce: Long,
@@ -27,12 +27,16 @@ case class OpenBox(override val proposition: HeightProposition,
 
   override lazy val bxHash: Digest32 = Algos.hash(
     Bytes.concat(
+      proposition.bytes,
       Longs.toByteArray(nonce),
       Longs.toByteArray(amount)
     )
   )
 
-  override def unlockTry(modifier: EncryTransaction, script: Option[String] = None): Try[Unit] = Success()
+  override def unlockTry(modifier: EncryTransaction,
+                         script: Option[String] = None, ctxOpt: Option[Context]): Try[Unit] =
+    if (ctxOpt.isDefined && proposition.height <= ctxOpt.get.height) Success()
+    else Failure(new Error("Unlock failed"))
 
   override def serializer: SizedCompanionSerializer[M] = OpenBoxSerializer
 
@@ -51,20 +55,20 @@ object OpenBox {
 
 object OpenBoxSerializer extends SizedCompanionSerializer[OpenBox] {
 
-  val Size: Int = 24
+  val Size: Int = 20
 
   override def toBytes(obj: OpenBox): Array[Byte] = {
     Bytes.concat(
       obj.proposition.serializer.toBytes(obj.proposition),
       Longs.toByteArray(obj.nonce),
-      Longs.toByteArray(obj.amount)
+      Longs.toByteArray(obj.amount),
     )
   }
 
   override def parseBytes(bytes: Array[Byte]): Try[OpenBox] = Try {
     val proposition = HeightPropositionSerializer.parseBytes(bytes.slice(0, HeightPropositionSerializer.Size)).get
-    val nonce = Longs.fromByteArray(bytes.slice(HeightPropositionSerializer.Size, 8 + 8))
-    val amount = Longs.fromByteArray(bytes.slice(HeightPropositionSerializer.Size + 8, 8 + 16))
+    val nonce = Longs.fromByteArray(bytes.slice(HeightPropositionSerializer.Size, HeightPropositionSerializer.Size + 8))
+    val amount = Longs.fromByteArray(bytes.slice(HeightPropositionSerializer.Size + 8, HeightPropositionSerializer.Size + 16))
     OpenBox(proposition, nonce, amount)
   }
 }

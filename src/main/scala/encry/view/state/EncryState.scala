@@ -7,7 +7,10 @@ import encry.local.TestHelper
 import encry.modifiers.EncryPersistentModifier
 import encry.modifiers.mempool.{CoinbaseTransaction, EncryBaseTransaction, PaymentTransaction}
 import encry.modifiers.state.box._
-import encry.settings.{Algos, EncryAppSettings, NodeSettings}
+import encry.modifiers.state.box.proposition.{AddressProposition, HeightProposition}
+import encry.settings.{Algos, Constants, EncryAppSettings, NodeSettings}
+import encry.view.history.Height
+import encry.view.state.index.StateIndexReader
 import scorex.core.VersionTag
 import scorex.core.transaction.state.MinimalState
 import scorex.core.utils.ScorexLogging
@@ -55,7 +58,8 @@ trait EncryState[IState <: MinimalState[EncryPersistentModifier, IState]]
 object EncryState extends ScorexLogging{
 
   // 33 bytes in Base58 encoding.
-  val afterGenesisStateDigestHex: String = "BrXzqSBcUxvnM3YyhcNYXWnQBYoYRQGeWKVp8GpJChxGT"
+  val afterGenesisStateDigestHex: String = "29KLRhyQqxtFT5y6MQGwLJ3iqbdCziSBudBvH5aCJxQcYk"
+
   val afterGenesisStateDigest: ADDigest = ADDigest @@ Algos.decode(afterGenesisStateDigestHex).get
 
   lazy val genesisStateVersion: VersionTag = VersionTag @@ Algos.hash(afterGenesisStateDigest.tail)
@@ -64,11 +68,22 @@ object EncryState extends ScorexLogging{
 
   def indexDir(settings: EncryAppSettings) = new File(s"${settings.directory}/index")
 
-  def genGenesisUtxoState(stateDir: File, indexDir: File,
-                          nodeViewHolderRef: Option[ActorRef]): (UtxoState, BoxHolder) = {
+  // TODO: Magic numbers. Move to settings.
+  def initialOpenBoxes: IndexedSeq[OpenBox] = (0 until 100).map(i =>
+    OpenBox(HeightProposition(Height @@ -1), 9999 * i, 20L))
+
+  def genesisEmptyBoxes: IndexedSeq[AssetBox] = {
+    lazy val genesisSeed = Long.MaxValue
+    lazy val rndGen = new scala.util.Random(genesisSeed)
+    (0 until 20).map(_ =>
+      AssetBox(AddressProposition(StateIndexReader.openBoxesAddress), rndGen.nextLong(), 0L))
+  }
+
+  def generateGenesisUtxoState(stateDir: File, indexDir: File,
+                               nodeViewHolderRef: Option[ActorRef]): (UtxoState, BoxHolder) = {
     log.info("Generating genesis UTXO state.")
 
-    lazy val initialBoxes: Seq[EncryBaseBox] = TestHelper.genAssetBoxes
+    lazy val initialBoxes: Seq[EncryBaseBox] = genesisEmptyBoxes
 
     val bh = BoxHolder(initialBoxes)
 

@@ -8,13 +8,13 @@ import encry.modifiers.history.ADProofs
 import encry.modifiers.history.block.EncryBlock
 import encry.modifiers.history.block.header.EncryBlockHeader
 import encry.modifiers.mempool.{CoinbaseTransaction, EncryBaseTransaction, PaymentTransaction}
-import encry.modifiers.state.TransactionValidator
 import encry.modifiers.state.box._
+import encry.modifiers.state.box.proposition.HeightProposition
 import encry.settings.{Algos, Constants}
+import encry.view.history.Height
 import encry.view.state.index.StateIndexReader
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore, Store}
 import scorex.core.LocalInterface.LocallyGeneratedModifier
-import scorex.core.transaction.box.proposition.PublicKey25519Proposition
 import scorex.core.utils.ScorexLogging
 import scorex.core.{ModifierId, VersionTag}
 import scorex.crypto.authds.avltree.batch._
@@ -62,6 +62,8 @@ class UtxoState(override val version: VersionTag,
         throw new Error(s"Error while applying modifier $tx.")
       }
     }
+
+    log.debug(s"$appliedModCounter modifications applied")
 
     // Checks whether the outcoming result is the same as expected.
     if (!expectedDigest.sameElements(persistentProver.digest))
@@ -121,8 +123,7 @@ class UtxoState(override val version: VersionTag,
 
       if (!(persistentProver.digest.sameElements(rootHash) &&
         storage.version.get.sameElements(rootHash) &&
-        stateStore.lastVersionID.get.data.sameElements(rootHash)))
-        Failure(new Error("Bad state version."))
+        stateStore.lastVersionID.get.data.sameElements(rootHash))) Failure(new Error("Bad state version."))
 
       val mods = getAllStateChanges(txs).operations.map(ADProofs.toModification)
       //todo .get
@@ -139,7 +140,7 @@ class UtxoState(override val version: VersionTag,
 
       proof -> digest
     } match {
-      case Success(res) => rollback().map(_ => res)
+      case Success(result) => rollback().map(_ => result)
       case Failure(e) => rollback().flatMap(_ => Failure(e))
     }
   }
@@ -172,7 +173,7 @@ class UtxoState(override val version: VersionTag,
   // Carries out an exhaustive tx validation.
   override def validate(tx: EncryBaseTransaction): Try[Unit] = Try {
 
-    tx.semanticValidity.get
+    tx.semanticValidity.failed
     tx match {
       case tx: PaymentTransaction =>
         var inputsSumCounter: Long = 0
@@ -183,8 +184,7 @@ class UtxoState(override val version: VersionTag,
                 case OpenBox.typeId =>
                   OpenBoxSerializer.parseBytes(data) match {
                     case Success(box) =>
-                      if (box.proposition.height > stateHeight)
-                        throw new Error(s"Box referenced in tx: $tx is disallowed to be spent at current height.")
+                      box.unlockTry(tx, ctxOpt = Some(Context(stateHeight)))
                       inputsSumCounter += box.amount
                     case Failure(_) =>
                       throw new Error(s"Unable to parse Box referenced in TX ${tx.txHash}")
@@ -192,8 +192,7 @@ class UtxoState(override val version: VersionTag,
                 case AssetBox.typeId =>
                   AssetBoxSerializer.parseBytes(data) match {
                     case Success(box) =>
-                      if (box.unlockTry(tx).isFailure)
-                        throw new Error(s"Invalid unlocker for box referenced in $tx")
+                      box.unlockTry(tx)
                       inputsSumCounter += box.amount
                     case Failure(_) =>
                       throw new Error(s"Unable to parse Box referenced in TX ${tx.txHash}")
@@ -215,8 +214,7 @@ class UtxoState(override val version: VersionTag,
                 case OpenBox.typeId =>
                   OpenBoxSerializer.parseBytes(data) match {
                     case Success(box) =>
-                      if (box.proposition.height > stateHeight)
-                        throw new Error(s"Box referenced in tx: $tx is disallowed to be spent at current height.")
+                      box.unlockTry(tx, ctxOpt = Some(Context(stateHeight)))
                     case Failure(_) =>
                       throw new Error(s"Unable to parse Box referenced in TX ${tx.txHash}")
                   }
@@ -259,7 +257,7 @@ object UtxoState extends ScorexLogging {
   def create(stateDir: File, indexDir: File, nodeViewHolderRef: Option[ActorRef]): UtxoState = {
     val stateStore = new LSMStore(stateDir, keepVersions = Constants.keepVersions)
     val indexStore = new LSMStore(indexDir,
-      keySize = PublicKey25519Proposition.AddressLength, keepVersions = Constants.keepVersions)
+      keySize = 32, keepVersions = Constants.keepVersions)
     val dbVersion = stateStore.get(ByteArrayWrapper(bestVersionKey)).map( _.data)
     new UtxoState(VersionTag @@ dbVersion.getOrElse(EncryState.genesisStateVersion),
       stateStore, indexStore, nodeViewHolderRef)
@@ -275,12 +273,12 @@ object UtxoState extends ScorexLogging {
 
   def fromBoxHolder(bh: BoxHolder, stateDir: File,
                     indexDir: File, nodeViewHolderRef: Option[ActorRef]): UtxoState = {
-    val p = new BatchAVLProver[Digest32, Blake2b256Unsafe](keyLength = 32, valueLengthOpt = None)
+    val p = new BatchAVLProver[Digest32, Blake2b256Unsafe](keyLength = EncryBox.BoxIdSize, valueLengthOpt = None)
     bh.sortedBoxes.foreach(b => p.performOneOperation(Insert(b.id, ADValue @@ b.bytes)).ensuring(_.isSuccess))
 
     val stateStore = new LSMStore(stateDir, keepVersions = Constants.keepVersions)
     val indexStore = new LSMStore(indexDir,
-      keySize = PublicKey25519Proposition.AddressLength, keepVersions = Constants.keepVersions)
+      keySize = 32, keepVersions = Constants.keepVersions)
 
     log.info(s"Generating UTXO State from BH with ${bh.boxes.size} boxes")
 
@@ -290,5 +288,11 @@ object UtxoState extends ScorexLogging {
           p, storage, metadata(EncryState.genesisStateVersion, p.digest), paranoidChecks = true
         ).get.ensuring(_.digest sameElements storage.version.get)
     }
+  }
+
+  def newOpenBoxAt(height: Height, seed: Long): OpenBox = {
+    val perBlockEmissionAmount = 2000L
+    OpenBox(HeightProposition(Height @@ (height + Constants.emissionHeightLock)),
+      seed * height, perBlockEmissionAmount)
   }
 }

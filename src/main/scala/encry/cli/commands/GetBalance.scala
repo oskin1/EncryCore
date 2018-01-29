@@ -10,5 +10,5 @@ import scala.util.Try
 object GetBalance extends Command {
 
   override def execute(view: NodeViewHolder.CurrentView[EncryHistory, UtxoState, EncryWallet, EncryMempool],
-                       args: Array[String]): Try[Unit] = Try(println(0))
+                       args: Array[String]): Try[Unit] = Try(println(view.vault.balance))
 }

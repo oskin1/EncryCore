@@ -15,20 +15,21 @@ import scorex.core.transaction.box.proposition.PublicKey25519Proposition
 import scorex.core.transaction.proof.Signature25519
 import scorex.core.transaction.state.PrivateKey25519Companion
 import scorex.crypto.authds.{ADDigest, SerializedAdProof}
-import scorex.crypto.encode.Base58
 import scorex.crypto.hash.Digest32
 import scorex.crypto.signatures.{PublicKey, Signature}
 import scorex.utils.Random
 
 class EncryWalletTest extends FunSuite {
 
-  lazy val encrySettings: EncryAppSettings = EncryAppSettings.read(Option(""))
+  test("Encry Wallet test"){
 
-  test("walletBalance") {
+    lazy val encrySettings: EncryAppSettings = EncryAppSettings.read(Option(""))
 
     var wallet: EncryWallet = EncryWallet.readOrGenerate(encrySettings)
 
-    wallet.keyStorage.initStorage(Random.randomBytes())
+    wallet.keyStorage.initStorage("testSeed".getBytes())
+
+    wallet.dataStorage.initStorage()
 
     val blockHeader = EncryBlockHeader(
       99: Byte,
@@ -44,7 +45,6 @@ class EncryWalletTest extends FunSuite {
       Difficulty @@ BigInt(999999999999999L)
     )
 
-
     val factory = TestHelper
     val keys = factory.getOrGenerateKeys(factory.Props.keysFilePath)
 
@@ -53,7 +53,7 @@ class EncryWalletTest extends FunSuite {
       val fee = factory.Props.txFee
       val timestamp = 1234567L
       val useBoxes = IndexedSeq(factory.genAssetBox(Address @@ key.publicImage.address)).map(_.id)
-      val outputs = IndexedSeq((Address @@ wallet.publicKeys.head.address, factory.Props.boxValue))
+      val outputs = IndexedSeq((Address @@ wallet.keyStorage.keys.head.publicImage.address, factory.Props.boxValue))
       val sig = PrivateKey25519Companion.sign(
         key,
         PaymentTransaction.getMessageToSign(proposition, fee, timestamp, useBoxes, outputs)
@@ -61,21 +61,9 @@ class EncryWalletTest extends FunSuite {
       PaymentTransaction(proposition, fee, timestamp, sig, useBoxes, outputs)
     }
 
+    val trxCount = 50
 
-    val spendTx = {
-      val proposition = wallet.keyStorage.keys.head.publicImage
-      val fee = factory.Props.txFee
-      val timestamp = 1234567L
-      val useBoxes = IndexedSeq(validTxs.head.newBoxes.last.id)
-      val outputs = IndexedSeq((Address @@ keys.head.publicImage.address, factory.Props.boxValue))
-      val sig = PrivateKey25519Companion.sign(
-        wallet.keyStorage.keys.head,
-        PaymentTransaction.getMessageToSign(proposition, fee, timestamp, useBoxes, outputs)
-      )
-      PaymentTransaction(proposition, fee, timestamp, sig, useBoxes, outputs)
-    }
-
-    val blockPayload = new EncryBlockPayload(ModifierId @@ Array.fill(32)(19: Byte), validTxs :+ spendTx)
+    val blockPayload = new EncryBlockPayload(ModifierId @@ Array.fill(32)(19: Byte), validTxs.slice(0,trxCount))
 
     val adProofs = ADProofs(ModifierId @@ Random.randomBytes(), SerializedAdProof @@ Random.randomBytes())
 
@@ -83,8 +71,10 @@ class EncryWalletTest extends FunSuite {
 
     wallet = wallet.scanPersistent(eB)
 
-    assert(wallet.balance == 999000,"Incorrect Balance!")
-  }
+    assert(trxCount*factory.Props.boxValue == wallet.balance, "Balance not equals")
 
+
+
+  }
 
 }

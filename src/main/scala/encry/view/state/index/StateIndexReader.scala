@@ -21,6 +21,8 @@ import scala.concurrent.Future
 
 trait StateIndexReader extends ScorexLogging {
 
+  import StateIndexReader._
+
   val indexStore: Store
 
   protected lazy val indexStorage = new StateIndexStorage(indexStore)
@@ -28,6 +30,7 @@ trait StateIndexReader extends ScorexLogging {
   def boxIdsByAddress(addr: Address): Option[Seq[ADKey]] = indexStorage.boxesByAddress(addr)
 
   def updateIndexOn(mod: EncryPersistentModifier): Future[Unit] = Future {
+
     mod match {
       case block: EncryBlock =>
         val stateOpsMap = mutable.HashMap.empty[Address, (mutable.Set[ADKey], mutable.Set[ADKey])]
@@ -44,10 +47,12 @@ trait StateIndexReader extends ScorexLogging {
                       Address @@ tx.proposition.address, mutable.Set(id) -> mutable.Set.empty[ADKey])
                 }
               case OpenBox.typeId =>
-                stateOpsMap.get(StateIndexReader.openBoxesKey) match {
+                stateOpsMap.get(openBoxesAddress) match {
                   case Some(t) =>
                     if (t._2.exists(_.sameElements(id))) t._2.remove(id)
-                  case None => // ?
+                    else t._1.add(id)
+                  case None =>
+                    stateOpsMap.update(openBoxesAddress, mutable.Set(id) -> mutable.Set.empty[ADKey])
                 }
             }
           }
@@ -59,10 +64,10 @@ trait StateIndexReader extends ScorexLogging {
                   bx.proposition.address, mutable.Set.empty[ADKey] -> mutable.Set(bx.id))
               }
             case bx: OpenBox =>
-              stateOpsMap.get(StateIndexReader.openBoxesKey) match {
+              stateOpsMap.get(StateIndexReader.openBoxesAddress) match {
                 case Some(t) => t._2.add(bx.id)
                 case None => stateOpsMap.update(
-                  Address @@ tx.proposition.address, mutable.Set.empty[ADKey] -> mutable.Set(bx.id))
+                  StateIndexReader.openBoxesAddress, mutable.Set.empty[ADKey] -> mutable.Set(bx.id))
               }
           }
         }
@@ -74,23 +79,23 @@ trait StateIndexReader extends ScorexLogging {
 
   // Updates or creates index for key `address`.
   def updateIndexFor(address: Address, toRemove: Seq[ADKey], toInsert: Seq[ADKey]): Future[Unit] = Future {
-    val addrBytes = AddressProposition.getAddrBytes(address)
+    val addrKey = keyByAddress(address)
     val bxsOpt = indexStorage.boxesByAddress(address)
     bxsOpt match {
       case Some(bxs) =>
         indexStorage.update(
-          ModifierId @@ Algos.hash(addrBytes ++ toRemove.head ++ toInsert.head),
-          Seq(ByteArrayWrapper(addrBytes)),
-          Seq(ByteArrayWrapper(addrBytes) -> ByteArrayWrapper(
+          ModifierId @@ Algos.hash(addrKey ++ toRemove.head ++ toInsert.head),
+          Seq(ByteArrayWrapper(addrKey)),
+          Seq(ByteArrayWrapper(addrKey) -> ByteArrayWrapper(
             (bxs.filterNot(toRemove.contains) ++ toInsert)
               .foldLeft(Array[Byte]()) { case (buff, id) => buff ++ id }
           ))
         )
       case None =>
         indexStorage.update(
-          ModifierId @@ Algos.hash(addrBytes ++ toRemove.head ++ toInsert.head),
+          ModifierId @@ Algos.hash(addrKey ++ toRemove.head ++ toInsert.head),
           Seq(),
-          Seq(ByteArrayWrapper(addrBytes) ->
+          Seq(ByteArrayWrapper(addrKey) ->
             ByteArrayWrapper(toInsert.foldLeft(Array[Byte]()) { case (buff, id) => buff ++ id }))
         )
     }
@@ -98,14 +103,16 @@ trait StateIndexReader extends ScorexLogging {
 
   def bulkUpdateIndex(version: ModifierId,
                       opsMap: mutable.HashMap[Address, (mutable.Set[ADKey], mutable.Set[ADKey])],
-                      heightOpt: Option[Height]): Unit = {
+                      modHeightOpt: Option[Height]): Unit = {
     val opsFinal = opsMap
       .foldLeft(Seq[(Address, Seq[ADKey])](), Seq[(Address, Seq[ADKey])]()) {
         case ((bNew, bExs), (addr, (toRem, toIns))) =>
           val bxsOpt = indexStorage.boxesByAddress(addr)
           bxsOpt match {
             case Some(bxs) =>
-              bNew -> (bExs :+ (addr, bxs.filterNot(toRem.contains) ++ toIns.toSeq))
+              val bxsToReInsert = bxs.foldLeft(Seq[ADKey]()) {
+                case (buff, id) => if (toRem.forall(!_.sameElements(id))) buff :+ id else buff }
+              bNew -> (bExs :+ (addr, bxsToReInsert ++ toIns.toSeq))
             case None =>
               (bNew :+ (addr, toIns.toSeq)) -> bExs
           }
@@ -114,20 +121,19 @@ trait StateIndexReader extends ScorexLogging {
     log.info(s"Updating index for mod: ${Base58.encode(version)}")
 
     val keysToRemove = {
-      if (heightOpt.isDefined)
-        opsFinal._2.map(i => ByteArrayWrapper(AddressProposition.getAddrBytes(i._1))) :+
-          StateIndexReader.stateHeightKey
+      if (modHeightOpt.isDefined)
+        opsFinal._2.map(i => ByteArrayWrapper(keyByAddress(i._1))) :+ StateIndexReader.stateHeightKey
       else
-        opsFinal._2.map(i => ByteArrayWrapper(AddressProposition.getAddrBytes(i._1)))
+        opsFinal._2.map(i => ByteArrayWrapper(keyByAddress(i._1)))
     }
 
     val recordsToInsert = {
       val bxsOps = (opsFinal._1 ++ opsFinal._2).map { case (addr, ids) =>
-        ByteArrayWrapper(AddressProposition.getAddrBytes(addr)) ->
+        ByteArrayWrapper(keyByAddress(addr)) ->
           ByteArrayWrapper(ids.foldLeft(Array[Byte]()) { case (buff, id) => buff ++ id })
       }
-      if (heightOpt.isDefined)
-        bxsOps :+ (StateIndexReader.stateHeightKey, ByteArrayWrapper(Ints.toByteArray(heightOpt.get)))
+      if (modHeightOpt.isDefined)
+        bxsOps :+ (StateIndexReader.stateHeightKey, ByteArrayWrapper(Ints.toByteArray(modHeightOpt.get)))
       else
         bxsOps
     }
@@ -142,7 +148,9 @@ trait StateIndexReader extends ScorexLogging {
 
 object StateIndexReader {
 
-  val openBoxesKey: Address = Address @@ "3goCpFrrBakKJwxk7d4oY5HN54dYMQZbmVWKvQBPZPDvbL3hHp"
+  val openBoxesAddress: Address = Address @@ "3goCpFrrBakKJwxk7d4oY5HN54dYMQZbmVWKvQBPZPDvbL3hHp"
 
   val stateHeightKey: ByteArrayWrapper = ByteArrayWrapper(Algos.hash("state_height".getBytes))
+
+  def keyByAddress(address: Address) = Algos.hash(AddressProposition.getAddrBytes(address))
 }
