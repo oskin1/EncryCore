@@ -3,12 +3,12 @@ package encry.view.wallet.data
 import java.io.File
 
 import com.google.common.primitives.{Ints, Longs}
+import encry.account.Address
 import encry.modifiers.mempool.{PaymentTransaction, PaymentTransactionSerializer}
+import encry.modifiers.state.box.proposition.AddressProposition
 import encry.modifiers.state.box.{AssetBox, AssetBoxSerializer}
 import encry.settings.{Algos, EncryAppSettings, WalletSettings}
 import encry.view.wallet.EncryWallet
-import encry.view.wallet.keys.KeyManager
-import encry.view.wallet.keys.KeyManager.keysDir
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore}
 import scorex.core.transaction.box.proposition.PublicKey25519Proposition
 import scorex.core.utils.ScorexLogging
@@ -34,7 +34,7 @@ import scala.util.Try
   */
 
 case class WalletDataManager(store: LSMStore,
-                             var propositionsList: Seq[PublicKey25519Proposition]) extends ScorexLogging{
+                             var propSeq: Seq[PublicKey25519Proposition]) extends ScorexLogging{
 
   /**
     * initStorage() - Initialize storage with empty fields
@@ -92,9 +92,14 @@ case class WalletDataManager(store: LSMStore,
     * Get keys of unspent boxes
     * @return seq of ADKeys
     */
-  def getADKeysOfBoxes: Seq[ADKey] =
-    listOfBoxesKeys.sliding(1,32)
-        .foldLeft(Seq[ADKey]())( (seq, key) => seq :+ ADKey @@ key)
+  def getADKeysOfBoxes: Seq[Array[Byte]] =
+  {
+    val list = listOfBoxesKeys
+    (0 until (list.length/32)).foldLeft(Seq[Array[Byte]]())( (seq,i) =>
+      seq :+ list.slice(32*i,32*i+32)
+    )
+  }
+
 
   /**
     * get trxs of this wallet
@@ -108,17 +113,25 @@ case class WalletDataManager(store: LSMStore,
 
   /**
     * Update value of key "listOfBoxesKeys"
-    * @param newList - new value
+    * @param newList - new of bytes
     */
   def updateADKeysList(newList: Array[Byte]): Unit ={
     //delete previous value
     store.update(
-      new ByteArrayWrapper(Algos.hash(newList)), Seq(new ByteArrayWrapper(Algos.hash("listOfBoxesKeys"))), Seq()
+      new ByteArrayWrapper(Algos.hash(newList ++ Longs.toByteArray(System.currentTimeMillis()))), Seq(new ByteArrayWrapper(Algos.hash("listOfBoxesKeys"))), Seq()
     )
     //put new value
     store.update(
-      new ByteArrayWrapper(Algos.hash(Algos.hash(newList))), Seq(), Seq((new ByteArrayWrapper(Algos.hash("listOfBoxesKeys")), new ByteArrayWrapper(newList)))
+      new ByteArrayWrapper(Algos.hash(Algos.hash(newList ++ Longs.toByteArray(System.currentTimeMillis())))), Seq(), Seq((new ByteArrayWrapper(Algos.hash("listOfBoxesKeys")), new ByteArrayWrapper(newList)))
     )
+  }
+
+  /**
+    * Update value of key "listOfBoxesKeys"
+    * @param newList - new list of ADkeys
+    */
+  def updateADKeysList(newList: Seq[ADKey]): Unit ={
+    updateADKeysList(newList.foldLeft(Array[Byte]())(_ ++ _))
   }
 
   /**
@@ -148,16 +161,25 @@ case class WalletDataManager(store: LSMStore,
   }
 
   /**
+    * Put box to store or delete it from db if it's already exist in it
+    * @param box
+    */
+
+  def putBoxOrDelete(box: AssetBox): Unit = {
+    if(getBoxById(box.id).isFailure)
+      putBox(box)
+    else
+      delBoxByInst(box)
+  }
+
+  /**
     * Put box to store
     * @param box
     */
-  def putBox(box: AssetBox): Unit = {
-    if(getBoxById(box.id).isFailure) {
+  def putBox(box: AssetBox): Unit =
       store.update(
         new ByteArrayWrapper(Algos.hash(box.id ++ Longs.toByteArray(System.currentTimeMillis()))), Seq(), Seq((new ByteArrayWrapper(Algos.hash(box.id)), new ByteArrayWrapper(AssetBoxSerializer.toBytes(box))))
       )
-    } else throw new Error("Box with this id is already contains in db")
-  }
 
   /**
     * Put seq of boxes to store
@@ -169,7 +191,7 @@ case class WalletDataManager(store: LSMStore,
     }
     else
       updateADKeysList(listOfBoxesKeys ++ boxList.foldLeft(Array[Byte]())(_ ++ _.id))
-    boxList.foreach(putBox)
+    boxList.foreach(putBoxOrDelete)
   }
 
   /**
@@ -197,6 +219,13 @@ case class WalletDataManager(store: LSMStore,
   def getBoxById(id: ADKey): Try[AssetBox] = Try {
     AssetBoxSerializer.parseBytes(store.get(new ByteArrayWrapper(Algos.hash(id))).get.data).get
   }
+
+  def deleteBoxesById(ids: Seq[ADKey]): Unit = {
+    val newList = getADKeysOfBoxes.foldLeft(Array[Byte]()) {
+      case (buff, id) => if (ids.forall(!_.sameElements(id))) buff ++ id else buff }
+
+    updateADKeysList(newList)
+  }
   /**
     * Return instance of transaction
     * @param txHash - hash of transaction
@@ -216,19 +245,23 @@ case class WalletDataManager(store: LSMStore,
       store.update(
         new ByteArrayWrapper(tx.txHash), Seq(), Seq((new ByteArrayWrapper(tx.txHash), new ByteArrayWrapper(PaymentTransactionSerializer.toBytes(tx))))
       )
-      putBoxes(tx.newBoxes.filter(_.isInstanceOf[AssetBox]).map(_.asInstanceOf[AssetBox]).toSeq)
+      if(propSeq contains tx.proposition){
+        deleteBoxesById(tx.useBoxes)
+      }else{
+        putBoxes(tx.newBoxes.filter(box => box.isInstanceOf[AssetBox] && (propSeq.map(a => new AddressProposition(Address @@ a.address)) contains box.proposition)).map(_.asInstanceOf[AssetBox]).toSeq)
+      }
       refreshBalance
     } else {
       throw new Error("Tx with this txHash is already contains in db")
     }
   }
 
-  def refreshProps(newProps: Seq[PublicKey25519Proposition]) = {
-    this.propositionsList = newProps
-  }
-
   def refreshBalance: Unit = {
     updateBalance(getInstOfAllBoxes.foldLeft(0L)(_ + _.amount))
+  }
+
+  def refreshProps(newPropList: Seq[PublicKey25519Proposition]): Unit = {
+    this.propSeq = newPropList
   }
 
   def getBalance = Longs.fromByteArray(store.get(new ByteArrayWrapper(Algos.hash("balance"))).get.data)

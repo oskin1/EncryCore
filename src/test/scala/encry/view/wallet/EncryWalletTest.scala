@@ -61,9 +61,24 @@ class EncryWalletTest extends FunSuite {
       PaymentTransaction(proposition, fee, timestamp, sig, useBoxes, outputs)
     }
 
+    val spentTx = validTxs.map { tx =>
+      val proposition = wallet.keyStorage.keys.head.publicImage
+      val fee = factory.Props.txFee
+      val timestamp = 1234567L
+      val useBoxes = IndexedSeq(tx.newBoxes.last.id)
+      val outputs = IndexedSeq((Address @@ keys.head.publicImage.address, factory.Props.boxValue))
+      val sig = PrivateKey25519Companion.sign(
+        wallet.keyStorage.keys.head,
+        PaymentTransaction.getMessageToSign(proposition, fee, timestamp, useBoxes, outputs)
+      )
+      PaymentTransaction(proposition, fee, timestamp, sig, useBoxes, outputs)
+    }
+
     val trxCount = 50
 
-    val blockPayload = new EncryBlockPayload(ModifierId @@ Array.fill(32)(19: Byte), validTxs.slice(0,trxCount))
+    val spentTxCount = 25
+
+    val blockPayload = new EncryBlockPayload(ModifierId @@ Array.fill(32)(19: Byte), validTxs.slice(0,trxCount) ++ spentTx.slice(0, spentTxCount))
 
     val adProofs = ADProofs(ModifierId @@ Random.randomBytes(), SerializedAdProof @@ Random.randomBytes())
 
@@ -71,7 +86,9 @@ class EncryWalletTest extends FunSuite {
 
     wallet = wallet.scanPersistent(eB)
 
-    assert(trxCount*factory.Props.boxValue == wallet.balance, "Balance not equals")
+    val expectedBalance = trxCount*factory.Props.boxValue - spentTxCount*factory.Props.boxValue
+
+    assert(expectedBalance == wallet.balance, "Balance not equals")
 
 
 
