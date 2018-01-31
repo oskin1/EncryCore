@@ -7,7 +7,7 @@ import encry.settings.{Algos, EncryAppSettings, KeyManagerSettings}
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore}
 import scorex.core.transaction.state.PrivateKey25519
 import scorex.core.utils.ScorexLogging
-import java.security.{SecureRandom}
+import java.security.SecureRandom
 import javax.crypto.BadPaddingException
 import javax.crypto.IllegalBlockSizeException
 import javax.crypto.Cipher
@@ -17,6 +17,8 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import java.security.AlgorithmParameters
+
+import scorex.crypto.encode.Base58
 import scorex.crypto.hash.{Blake2b512, Digest32}
 import scorex.crypto.signatures.Curve25519
 import scorex.utils.Random
@@ -60,14 +62,6 @@ case class KeyManager(store: LSMStore,
   }
 
   /**
-    * get hash of  Keys sequence
-    * @param keysSeq
-    */
-  def keysHash(keysSeq: Seq[PrivateKey25519]): Digest32 = Algos.hash(keysSeq.foldLeft(Array[Byte]()) {
-    case(currentHash,key) => currentHash ++ Algos.hash(key.publicKeyBytes)
-  })
-
-  /**
     * Generate keys from seed and keysHash
     * @return Sequence of keys
     */
@@ -95,10 +89,31 @@ case class KeyManager(store: LSMStore,
     )
   }
 
+  def isLocked: Boolean = (1: Byte) == store.get(KeyManager.lockKey).map(_.data).getOrElse(Array(0: Byte)).head
+
+  def getKey(key: ByteArrayWrapper) =
+    store.get(key).map(_.data).getOrElse(Array[Byte](0))
+
   def keys: Seq[PrivateKey25519] =
-    getKeysFromStorageWithChainCode.foldLeft(Seq[PrivateKey25519]()) {
-      case (seq, elem) => seq :+ elem._1
+  {
+    if(!isLocked){
+      println("Unlocked")
+      getKeysFromStorageWithChainCode.foldLeft(Seq[PrivateKey25519]()) {
+        case (seq, elem) => seq :+ elem._1
+      }
+    }else{
+      println("Locked")
+      unlock()
+      val keys = getKeysFromStorageWithChainCode.foldLeft(Seq[PrivateKey25519]()) {
+        case (seq, elem) => seq :+ elem._1
+      }
+      lock()
+      keys
     }
+
+  }
+
+
 
   def isEmpty: Boolean = keys.isEmpty
 
@@ -109,16 +124,19 @@ case class KeyManager(store: LSMStore,
     */
   def unlock(key: Array[Byte] = password.getOrElse(Array[Byte]())): Unit = {
     updateKey(KeyManager.seedKey ,decryptAES(key))
+    updateKey(KeyManager.lockKey, KeyManager.unlockFlag)
   }
 
   /**
     * Lock KeyKeeperStorage with GOST 34.12-2015 or AES
     */
   def lock(key: Array[Byte] = password.getOrElse(Array[Byte]())): Unit = {
+    println("lock")
     val (encryptSeed, iv, salt) = encryptAES(key)
     updateKey(KeyManager.seedKey ,encryptSeed)
     updateKey(KeyManager.ivKey ,iv)
     updateKey(KeyManager.saltKey ,salt)
+    updateKey(KeyManager.lockKey, KeyManager.lockFlag)
   }
 
   def generateSalt: Array[Byte] = {
@@ -195,8 +213,8 @@ case class KeyManager(store: LSMStore,
   }
 
   def addKey(): Unit = {
-    val newKeysQty = store.get(KeyManager.countKey).map(d => Ints.fromByteArray(d.data)).getOrElse(0) + 1
 
+    val newKeysQty = store.get(KeyManager.countKey).map(d => Ints.fromByteArray(d.data)).getOrElse(0) + 1
     updateKey(KeyManager.countKey, Ints.toByteArray(newKeysQty))
   }
 
@@ -212,6 +230,7 @@ case class KeyManager(store: LSMStore,
       Seq((KeyManager.seedKey, new ByteArrayWrapper(seed)),
         (KeyManager.ivKey, new ByteArrayWrapper(Random.randomBytes(0))),
         (KeyManager.saltKey, new ByteArrayWrapper(Random.randomBytes(0))),
+        (KeyManager.lockKey, new ByteArrayWrapper(Array(0:Byte))),
         (KeyManager.countKey, new ByteArrayWrapper(Ints.toByteArray(1)))
       )
     )
@@ -220,8 +239,14 @@ case class KeyManager(store: LSMStore,
 
 object KeyManager extends ScorexLogging {
 
+  val lockFlag = Array(0: Byte)
+
+  val unlockFlag = Array(1: Byte)
+
   val seedKey = new ByteArrayWrapper(Algos.hash("seed"))
-  
+
+  val lockKey = new ByteArrayWrapper(Algos.hash("lock"))
+
   val ivKey = new ByteArrayWrapper(Algos.hash("iv"))
   
   val saltKey = new ByteArrayWrapper(Algos.hash("salt"))
@@ -230,10 +255,23 @@ object KeyManager extends ScorexLogging {
 
   def keysDir(settings: EncryAppSettings) = new File(s"${settings.directory}/keys")
 
-  def readOrGenerate(settings: EncryAppSettings, password: Option[Array[Byte]] = Option(Array[Byte]())): KeyManager = {
+  def readOrGenerate(settings: EncryAppSettings, password: Option[Array[Byte]] = Option(Array[Byte]()), seed: Array[Byte] = Random.randomBytes()): KeyManager = {
     val dir = keysDir(settings)
+
     dir.mkdirs()
 
-    KeyManager(new LSMStore(dir, 32), settings.keyManagerSettings, password)
+    val km = KeyManager(new LSMStore(dir, 32), settings.keyManagerSettings, password)
+
+    if(km.isEmpty) {
+      km.initStorage(seed)
+      if(settings.keyManagerSettings.lock && !km.isLocked)
+        {
+          println("HHHHH")
+          km.lock()
+        }
+
+    }
+
+    km
   }
 }
