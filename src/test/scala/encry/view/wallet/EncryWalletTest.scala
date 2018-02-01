@@ -27,9 +27,7 @@ class EncryWalletTest extends FunSuite {
 
     var wallet: EncryWallet = EncryWallet.readOrGenerate(encrySettings)
 
-    wallet.keyStorage.initStorage("testSeed".getBytes())
-
-    wallet.dataStorage.initStorage()
+    wallet.keyManager.initStorage("testSeed".getBytes())
 
     val blockHeader = EncryBlockHeader(
       99: Byte,
@@ -53,7 +51,7 @@ class EncryWalletTest extends FunSuite {
       val fee = factory.Props.txFee
       val timestamp = 1234567L
       val useBoxes = IndexedSeq(factory.genAssetBox(Address @@ key.publicImage.address)).map(_.id)
-      val outputs = IndexedSeq((Address @@ wallet.keyStorage.keys.head.publicImage.address, factory.Props.boxValue))
+      val outputs = IndexedSeq((Address @@ wallet.keyManager.keys.head.publicImage.address, factory.Props.boxValue))
       val sig = PrivateKey25519Companion.sign(
         key,
         PaymentTransaction.getMessageToSign(proposition, fee, timestamp, useBoxes, outputs)
@@ -61,37 +59,16 @@ class EncryWalletTest extends FunSuite {
       PaymentTransaction(proposition, fee, timestamp, sig, useBoxes, outputs)
     }
 
-    val spentTx = validTxs.map { tx =>
-      val proposition = wallet.keyStorage.keys.head.publicImage
-      val fee = factory.Props.txFee
-      val timestamp = 1234567L
-      val useBoxes = IndexedSeq(tx.newBoxes.last.id)
-      val outputs = IndexedSeq((Address @@ keys.head.publicImage.address, factory.Props.boxValue))
-      val sig = PrivateKey25519Companion.sign(
-        wallet.keyStorage.keys.head,
-        PaymentTransaction.getMessageToSign(proposition, fee, timestamp, useBoxes, outputs)
-      )
-      PaymentTransaction(proposition, fee, timestamp, sig, useBoxes, outputs)
-    }
-
     val trxCount = 50
 
-    val spentTxCount = 25
-
-    val blockPayload = new EncryBlockPayload(ModifierId @@ Array.fill(32)(19: Byte), validTxs.slice(0,trxCount) ++ spentTx.slice(0, spentTxCount))
+    val blockPayload = new EncryBlockPayload(ModifierId @@ Array.fill(32)(19: Byte), validTxs.slice(0,trxCount))
 
     val adProofs = ADProofs(ModifierId @@ Random.randomBytes(), SerializedAdProof @@ Random.randomBytes())
 
-    val eB = new EncryBlock(blockHeader,blockPayload,Option(adProofs))
+    val block = new EncryBlock(blockHeader,blockPayload,Option(adProofs))
 
-    wallet = wallet.scanPersistent(eB)
+    wallet = wallet.scanPersistent(block)
 
-    val expectedBalance = trxCount*factory.Props.boxValue - spentTxCount*factory.Props.boxValue
-
-    assert(expectedBalance == wallet.balance, "Balance not equals")
-
-
-
+    assert(trxCount*factory.Props.boxValue == wallet.balance, "Balance not equals")
   }
-
 }

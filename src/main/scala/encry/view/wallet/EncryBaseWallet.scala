@@ -1,14 +1,13 @@
 package encry.view.wallet
 
-import encry.view.wallet.vault.{WalletBox, WalletTransaction}
 import scorex.core.transaction.box.proposition.PublicKey25519Proposition
 import scorex.core.transaction.state.PrivateKey25519
 
-trait BaseWallet{
+trait EncryBaseWallet extends WalletReader {
 
-  def historyTransactions: Seq[WalletTransaction]
+  def historyTransactions: Seq[WalletTransaction] = getAllTransactions.map(WalletTransaction)
 
-  def boxes(): Seq[WalletBox]
+  def boxes: Seq[WalletBox] = getAvailableBoxes.map(WalletBox)
 
   def publicKeys: Set[PublicKey25519Proposition]
 

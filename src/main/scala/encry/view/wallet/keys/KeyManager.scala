@@ -1,24 +1,15 @@
 package encry.view.wallet.keys
 
 import java.io.File
+import java.security.{AlgorithmParameters, SecureRandom}
+import javax.crypto._
+import javax.crypto.spec.{IvParameterSpec, PBEKeySpec, SecretKeySpec}
 
 import com.google.common.primitives.{Ints, Longs}
 import encry.settings.{Algos, EncryAppSettings, KeyManagerSettings}
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore}
 import scorex.core.transaction.state.PrivateKey25519
 import scorex.core.utils.ScorexLogging
-import java.security.SecureRandom
-import javax.crypto.BadPaddingException
-import javax.crypto.IllegalBlockSizeException
-import javax.crypto.Cipher
-import javax.crypto.SecretKey
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.PBEKeySpec
-import javax.crypto.spec.SecretKeySpec
-import java.security.AlgorithmParameters
-
-import scorex.crypto.encode.Base58
 import scorex.crypto.hash.{Blake2b512, Digest32}
 import scorex.crypto.signatures.Curve25519
 import scorex.utils.Random
@@ -26,16 +17,17 @@ import scorex.utils.Random
 import scala.language.postfixOps
 import scala.util.Try
 
+
 /**
   * KeyKeeperStorage manages LMStore with private keys (Only Pk25519)
  *
   * @param store - KeyKeeperStorage storage
-  * @param password - password to unlock storage
+  * @param passwdBytes - password to unlock storage
   */
 
 case class KeyManager(store: LSMStore,
                       storageSettings: KeyManagerSettings,
-                      password: Option[Array[Byte]]) extends ScorexLogging {
+                      passwdBytes: Option[Array[Byte]]) extends ScorexLogging {
   /**
     * Generate private key from some string bytes
     * @param seed
@@ -62,23 +54,30 @@ case class KeyManager(store: LSMStore,
   }
 
   /**
+    * get hash of  Keys sequence
+    * @param keysSeq
+    */
+  def keysHash(keysSeq: Seq[PrivateKey25519]): Digest32 = Algos.hash(keysSeq.foldLeft(Array[Byte]()) {
+    case(currentHash,key) => currentHash ++ Algos.hash(key.publicKeyBytes)
+  })
+
+  /**
     * Generate keys from seed and keysHash
     * @return Sequence of keys
     */
-  private def getKeysFromStorageWithChainCode: Seq[(PrivateKey25519, Array[Byte])] = {
+  private def getKeysWithChainCode: Seq[(PrivateKey25519, Array[Byte])] = {
 
     val keysQty =
-      store.get(KeyManager.countKey).map(d => Ints.fromByteArray(d.data)).getOrElse(0)
+      store.get(new ByteArrayWrapper(Algos.hash("count"))).map(d => Ints.fromByteArray(d.data)).getOrElse(0)
 
     (0 until keysQty).foldLeft(Seq[(PrivateKey25519, Array[Byte])]()) {
       case (seq, _) =>
         if (seq.nonEmpty) seq :+ deriveNextKey(seq.last._1, seq.last._2)
-        else seq :+ deriveKeysFromSeed(store.get(KeyManager.seedKey).get.data)
+        else seq :+ deriveKeysFromSeed(store.get(new ByteArrayWrapper(Algos.hash("seed"))).get.data)
     }
-
   }
 
-  def updateKey(key: ByteArrayWrapper, newValue: Array[Byte]) = {
+  def updateKey(key: ByteArrayWrapper, newValue: Array[Byte]): Unit = {
     //delete previous value
     store.update(
       new ByteArrayWrapper(Algos.hash(newValue ++ Longs.toByteArray(System.currentTimeMillis()))), Seq(key), Seq()
@@ -91,20 +90,17 @@ case class KeyManager(store: LSMStore,
 
   def isLocked: Boolean = (1: Byte) == store.get(KeyManager.lockKey).map(_.data).getOrElse(Array(0: Byte)).head
 
-  def getKey(key: ByteArrayWrapper) =
+  def getKey(key: ByteArrayWrapper): Array[Byte] =
     store.get(key).map(_.data).getOrElse(Array[Byte](0))
 
-  def keys: Seq[PrivateKey25519] =
-  {
-    if(!isLocked){
-      println("Unlocked")
-      getKeysFromStorageWithChainCode.foldLeft(Seq[PrivateKey25519]()) {
+  def keys: Seq[PrivateKey25519] = {
+    if (!isLocked) {
+      getKeysWithChainCode.foldLeft(Seq[PrivateKey25519]()) {
         case (seq, elem) => seq :+ elem._1
       }
     }else{
-      println("Locked")
       unlock()
-      val keys = getKeysFromStorageWithChainCode.foldLeft(Seq[PrivateKey25519]()) {
+      val keys = getKeysWithChainCode.foldLeft(Seq[PrivateKey25519]()) {
         case (seq, elem) => seq :+ elem._1
       }
       lock()
@@ -113,16 +109,17 @@ case class KeyManager(store: LSMStore,
 
   }
 
-
-
-  def isEmpty: Boolean = keys.isEmpty
+  def createNewKey(): Unit = {
+    val newKeysQty = store.get(KeyManager.countKey).map(d => Ints.fromByteArray(d.data)).getOrElse(0) + 1
+    updateKey(KeyManager.countKey, Ints.toByteArray(newKeysQty))
+  }
 
   /**
     * open KeyKeeperStorage and return set of keys inside store. If store dosn't exist or store was damaged return
     * only one key seq, which was generated from user-app password
     * @return
     */
-  def unlock(key: Array[Byte] = password.getOrElse(Array[Byte]())): Unit = {
+  def unlock(key: Array[Byte] = passwdBytes.getOrElse(Array[Byte]())): Unit = {
     updateKey(KeyManager.seedKey ,decryptAES(key))
     updateKey(KeyManager.lockKey, KeyManager.unlockFlag)
   }
@@ -130,8 +127,7 @@ case class KeyManager(store: LSMStore,
   /**
     * Lock KeyKeeperStorage with GOST 34.12-2015 or AES
     */
-  def lock(key: Array[Byte] = password.getOrElse(Array[Byte]())): Unit = {
-    println("lock")
+  def lock(key: Array[Byte] = passwdBytes.getOrElse(Array[Byte]())): Unit = {
     val (encryptSeed, iv, salt) = encryptAES(key)
     updateKey(KeyManager.seedKey ,encryptSeed)
     updateKey(KeyManager.ivKey ,iv)
@@ -153,7 +149,6 @@ case class KeyManager(store: LSMStore,
     */
   def encryptAES(key: Array[Byte]): (Array[Byte], Array[Byte], Array[Byte]) = {
 
-
     val seed = store.get(KeyManager.seedKey).map(_.data).getOrElse(Array[Byte]())
 
     val saltBytes: Array[Byte] = generateSalt
@@ -161,7 +156,7 @@ case class KeyManager(store: LSMStore,
     // Derive the key
     val factory: SecretKeyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
 
-    val spec: PBEKeySpec = new PBEKeySpec(key.map(_.asInstanceOf[Char]), saltBytes, 1000, 256)
+    val spec: PBEKeySpec = new PBEKeySpec(key.map(_.asInstanceOf[Char]), saltBytes, 1000, 128)
 
     val secretKey: SecretKey = factory.generateSecret(spec)
     val secret: SecretKeySpec = new SecretKeySpec(secretKey.getEncoded, "AES")
@@ -190,7 +185,7 @@ case class KeyManager(store: LSMStore,
 
     // Derive the key
     val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-    val spec = new PBEKeySpec(key.map(_.asInstanceOf[Char]), saltBytes, 1000, 256)
+    val spec = new PBEKeySpec(key.map(_.asInstanceOf[Char]), saltBytes, 1000, 128)
 
     val secretKey = factory.generateSecret(spec)
     val secret = new SecretKeySpec(secretKey.getEncoded, "AES")
@@ -210,12 +205,6 @@ case class KeyManager(store: LSMStore,
         e.printStackTrace()
     }
     decryptedTextBytes
-  }
-
-  def addKey(): Unit = {
-
-    val newKeysQty = store.get(KeyManager.countKey).map(d => Ints.fromByteArray(d.data)).getOrElse(0) + 1
-    updateKey(KeyManager.countKey, Ints.toByteArray(newKeysQty))
   }
 
   /**
@@ -248,30 +237,32 @@ object KeyManager extends ScorexLogging {
   val lockKey = new ByteArrayWrapper(Algos.hash("lock"))
 
   val ivKey = new ByteArrayWrapper(Algos.hash("iv"))
-  
+
   val saltKey = new ByteArrayWrapper(Algos.hash("salt"))
-  
+
   val countKey = new ByteArrayWrapper(Algos.hash("count"))
 
-  def keysDir(settings: EncryAppSettings) = new File(s"${settings.directory}/keys")
+  def getKeysDir(settings: EncryAppSettings) = new File(s"${settings.directory}/keys")
 
-  def readOrGenerate(settings: EncryAppSettings, password: Option[Array[Byte]] = Option(Array[Byte]()), seed: Array[Byte] = Random.randomBytes()): KeyManager = {
-    val dir = keysDir(settings)
+  def readOrGenerate(settings: EncryAppSettings,
+                     password: Option[Array[Byte]] = Option(Array[Byte]()),
+                     seed: Array[Byte] = Random.randomBytes()): KeyManager = {
 
+    val dir = getKeysDir(settings)
     dir.mkdirs()
 
-    val km = KeyManager(new LSMStore(dir, 32), settings.keyManagerSettings, password)
+    val keysStore = new LSMStore(dir, keepVersions = 0)
 
-    if(km.isEmpty) {
-      km.initStorage(seed)
-      if(settings.keyManagerSettings.lock && !km.isLocked)
-        {
-          println("HHHHH")
-          km.lock()
-        }
+    val keyManager = KeyManager(keysStore, settings.keyManagerSettings, password)
 
+    if (keyManager.keys.isEmpty) {
+      keyManager.initStorage(seed)
+      if (settings.keyManagerSettings.lock && !keyManager.isLocked) {
+        keyManager.lock()
+      }
     }
 
-    km
+    keyManager
   }
+
 }

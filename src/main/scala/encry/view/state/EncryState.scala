@@ -8,7 +8,7 @@ import encry.modifiers.EncryPersistentModifier
 import encry.modifiers.mempool.{CoinbaseTransaction, EncryBaseTransaction, PaymentTransaction}
 import encry.modifiers.state.box._
 import encry.modifiers.state.box.proposition.{AddressProposition, HeightProposition}
-import encry.settings.{Algos, Constants, EncryAppSettings, NodeSettings}
+import encry.settings.{Algos, EncryAppSettings, NodeSettings}
 import encry.view.history.Height
 import encry.view.state.index.StateIndexReader
 import scorex.core.VersionTag
@@ -58,15 +58,15 @@ trait EncryState[IState <: MinimalState[EncryPersistentModifier, IState]]
 object EncryState extends ScorexLogging{
 
   // 33 bytes in Base58 encoding.
-  val afterGenesisStateDigestHex: String = "29KLRhyQqxtFT5y6MQGwLJ3iqbdCziSBudBvH5aCJxQcYk"
+  val afterGenesisStateDigestHex: String = "BrXzqSBcUxvnM3YyhcNYXWnQBYoYRQGeWKVp8GpJChxGT"
 
   val afterGenesisStateDigest: ADDigest = ADDigest @@ Algos.decode(afterGenesisStateDigestHex).get
 
   lazy val genesisStateVersion: VersionTag = VersionTag @@ Algos.hash(afterGenesisStateDigest.tail)
 
-  def stateDir(settings: EncryAppSettings) = new File(s"${settings.directory}/state")
+  def getStateDir(settings: EncryAppSettings) = new File(s"${settings.directory}/state")
 
-  def indexDir(settings: EncryAppSettings) = new File(s"${settings.directory}/index")
+  def getIndexDir(settings: EncryAppSettings) = new File(s"${settings.directory}/index")
 
   // TODO: Magic numbers. Move to settings.
   def initialOpenBoxes: IndexedSeq[OpenBox] = (0 until 100).map(i =>
@@ -83,7 +83,7 @@ object EncryState extends ScorexLogging{
                                nodeViewHolderRef: Option[ActorRef]): (UtxoState, BoxHolder) = {
     log.info("Generating genesis UTXO state.")
 
-    lazy val initialBoxes: Seq[EncryBaseBox] = genesisEmptyBoxes
+    lazy val initialBoxes: Seq[EncryBaseBox] = TestHelper.genAssetBoxes
 
     val bh = BoxHolder(initialBoxes)
 
@@ -102,10 +102,10 @@ object EncryState extends ScorexLogging{
   // TODO:
   def readOrGenerate(settings: EncryAppSettings,
                      nodeViewHolderRef: Option[ActorRef]): Option[EncryState[_]] = {
-    val stDir = stateDir(settings)
+    val stDir = getStateDir(settings)
     stDir.mkdirs()
 
-    val idxDir = indexDir(settings)
+    val idxDir = getIndexDir(settings)
     idxDir.mkdirs()
 
     if (stDir.listFiles().isEmpty) {

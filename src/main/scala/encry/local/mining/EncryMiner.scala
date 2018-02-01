@@ -20,7 +20,7 @@ import scorex.core.NodeViewHolder
 import scorex.core.NodeViewHolder.{GetDataFromCurrentView, SemanticallySuccessfulModifier, Subscribe}
 import scorex.core.transaction.state.{PrivateKey25519, PrivateKey25519Companion}
 import scorex.core.utils.{NetworkTimeProvider, ScorexLogging}
-import scorex.crypto.encode.Base16
+import scorex.crypto.encode.{Base16, Base58}
 import scorex.utils.Random
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -85,7 +85,14 @@ class EncryMiner(viewHolderRef: ActorRef, settings: EncryAppSettings,
           consensus.verifyCandidate(candidate, nonce) match {
             case Some(block) =>
               log.info(s"New block found: $block")
-
+              println("Block id: ")
+              println(s"TX id: ${block.id}")
+              block.payload.transactions.foreach(
+                a => {
+                  a.useBoxes.foreach(a => println("Use box: " + Base58.encode(a)))
+                  a.newBoxes.foreach(a => println("New box: " + a.toString))
+                }
+              )
               viewHolderRef ! LocallyGeneratedModifier(block.header)
               viewHolderRef ! LocallyGeneratedModifier(block.payload)
               block.adProofsOpt.foreach { adp =>
@@ -143,7 +150,7 @@ object EncryMiner extends ScorexLogging {
 
         if ((bestHeaderOpt.isDefined || settings.nodeSettings.offlineGeneration) &&
           !view.pool.isEmpty &&
-          !view.vault.keyStorage.isEmpty) Try {
+          view.vault.keyManager.keys.nonEmpty) Try {
 
           lazy val timestamp = timeProvider.time()
           val height = Height @@ (bestHeaderOpt.map(_.height).getOrElse(-1) + 1)
@@ -158,9 +165,16 @@ object EncryMiner extends ScorexLogging {
           // TODO: Which PubK should we pick here?
           val minerProposition = view.vault.publicKeys.head
           val privateKey: PrivateKey25519 = view.vault.secretByPublicImage(minerProposition).get
-          val openBxs = txs.flatMap(tx => tx.newBoxes.filter(_.isInstanceOf[OpenBox])).toIndexedSeq ++
-            view.state.getAvailableOpenBoxesAt(height)
-          val amount = openBxs.map(_.value).sum
+
+          val openBxs: IndexedSeq[OpenBox] = txs.foldLeft(IndexedSeq[OpenBox]())((buff, tx) =>
+            buff ++ tx.newBoxes.foldLeft(IndexedSeq[OpenBox]()) { case (buff2, bx) =>
+              bx match {
+                case obx: OpenBox => buff2 :+ obx
+                case _ => buff2
+              }
+            }) ++ view.state.getAvailableOpenBoxesAt(height)
+
+          val amount = openBxs.map(_.amount).sum
           val cTxSignature = PrivateKey25519Companion.sign(privateKey,
             CoinbaseTransaction.getHash(minerProposition, openBxs.map(_.id), timestamp, amount, height))
 
@@ -182,7 +196,7 @@ object EncryMiner extends ScorexLogging {
             blockSignature, bestHeaderOpt, adProof, adDigest, txs, timestamp, difficulty)
 
           log.debug(s"Sending candidate block with ${candidate.transactions.length - 1} transactions " +
-            s"and 1 coinbase for height=${height}")
+            s"and 1 coinbase for height=$height")
 
           candidate
         }.recoverWith { case thr =>
@@ -190,7 +204,7 @@ object EncryMiner extends ScorexLogging {
           Failure(thr)
         }.toOption
         else {
-          if (view.vault.keyStorage.isEmpty) view.vault.keyStorage.initStorage(Random.randomBytes())
+          if (view.vault.keyManager.keys.isEmpty) view.vault.keyManager.initStorage(Random.randomBytes())
           None
         }
     }).mapTo[Option[PowCandidateBlock]]
