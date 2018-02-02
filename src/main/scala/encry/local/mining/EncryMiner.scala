@@ -20,7 +20,7 @@ import scorex.core.NodeViewHolder
 import scorex.core.NodeViewHolder.{GetDataFromCurrentView, SemanticallySuccessfulModifier, Subscribe}
 import scorex.core.transaction.state.{PrivateKey25519, PrivateKey25519Companion}
 import scorex.core.utils.{NetworkTimeProvider, ScorexLogging}
-import scorex.crypto.encode.{Base16, Base58}
+import scorex.crypto.encode.Base16
 import scorex.utils.Random
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -85,14 +85,6 @@ class EncryMiner(viewHolderRef: ActorRef, settings: EncryAppSettings,
           consensus.verifyCandidate(candidate, nonce) match {
             case Some(block) =>
               log.info(s"New block found: $block")
-              println("Block id: ")
-              println(s"TX id: ${block.id}")
-              block.payload.transactions.foreach(
-                a => {
-                  a.useBoxes.foreach(a => println("Use box: " + Base58.encode(a)))
-                  a.newBoxes.foreach(a => println("New box: " + a.toString))
-                }
-              )
               viewHolderRef ! LocallyGeneratedModifier(block.header)
               viewHolderRef ! LocallyGeneratedModifier(block.payload)
               block.adProofsOpt.foreach { adp =>

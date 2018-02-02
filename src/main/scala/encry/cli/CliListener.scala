@@ -29,7 +29,7 @@ case class CliListener(nodeViewHolderRef: ActorRef, settings: EncryAppSettings) 
     "-init" -> KeyManagerInit,
     "-getKeys" -> KeyManagerGetKeys,
     "-balance" -> GetBalance,
-    "-sendTx" -> sendTranscation
+    "-sendTx" -> Transfer
     ))
 
   override def receive: Receive = {
@@ -41,7 +41,7 @@ case class CliListener(nodeViewHolderRef: ActorRef, settings: EncryAppSettings) 
             parseCommand(input).slice(1, parseCommand(input).length).foreach { command =>
               value.get(command.split("=").head) match {
                 case Some(cmd) =>
-                  val answer = cmd.execute(nodeViewHolderRef, command.split("="), settings).get
+                  cmd.execute(nodeViewHolderRef, command.split("="), settings).get
                 case None =>
                   println("Unsupported command. Type 'app -help' to get commands list")
                   log.debug("Unsupported command")

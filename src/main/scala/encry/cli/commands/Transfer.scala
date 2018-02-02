@@ -1,30 +1,25 @@
 package encry.cli.commands
 
 import akka.actor.ActorRef
+import akka.pattern._
+import akka.util.Timeout
 import encry.account.Address
 import encry.modifiers.mempool.{EncryBaseTransaction, PaymentTransaction}
 import encry.modifiers.state.box.AssetBox
-import encry.modifiers.state.box.proposition.AddressProposition
-import akka.pattern._
-import akka.util.Timeout
 import encry.settings.EncryAppSettings
 import encry.view.history.EncryHistory
 import encry.view.mempool.EncryMempool
 import encry.view.state.UtxoState
 import encry.view.wallet.EncryWallet
 import scorex.core.LocalInterface.LocallyGeneratedTransaction
-import scorex.core.NodeViewHolder
 import scorex.core.NodeViewHolder.GetDataFromCurrentView
 import scorex.core.transaction.box.proposition.Proposition
 import scorex.core.transaction.proof.Signature25519
-import scorex.core.transaction.state.PrivateKey25519Companion
-import scorex.crypto.encode.Base58
 import scorex.crypto.signatures.Curve25519
 
 import scala.util.Try
 
-object sendTranscation extends Command {
-
+object Transfer extends Command {
 
   /**
     * Command "wallet -sendTx=toAddress;Amount"
@@ -46,7 +41,6 @@ object sendTranscation extends Command {
         val boxes = view.vault.walletStorage.getAllBoxes.foldLeft(Seq[AssetBox]()) {
           case (seq, box) => if (seq.map(_.amount).sum < amount) seq :+ box else seq
         }
-        boxes
         val useBoxes = boxes.map(_.id).toIndexedSeq
         val outputs = IndexedSeq(
           (Address @@ recepient, amount),
@@ -58,12 +52,9 @@ object sendTranscation extends Command {
 
         val tx = PaymentTransaction(proposition, fee, timestamp, sig, useBoxes, outputs)
 
-        println("id: " + Base58.encode(tx.id))
-
-        println(tx.json)
-
-        //nodeViewHolderRef ! LocallyGeneratedTransaction[Proposition, EncryBaseTransaction](tx)
+        nodeViewHolderRef ! LocallyGeneratedTransaction[Proposition, EncryBaseTransaction](tx)
       }
+
   }
 
 }

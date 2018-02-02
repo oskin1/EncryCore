@@ -43,6 +43,8 @@ case class AssetBox(override val proposition: AddressProposition,
 
   override def serializer: SizedCompanionSerializer[AssetBox] = AssetBoxSerializer
 
+  override def toString: String = s"<Box type=:$typeId id=:${Algos.encode(id)} amount:=${amount}>"
+
   override def json: Json = Map(
     "id" -> Base58.encode(id).asJson,
     "proposition" -> proposition.address.toString.asJson,

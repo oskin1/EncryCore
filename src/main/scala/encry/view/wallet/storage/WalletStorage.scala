@@ -103,6 +103,7 @@ class WalletStorage(val db: Store, val publicKeys: Set[PublicKey25519Proposition
     if(getTransactionById(tx.txHash).isFailure){
       val txsRawBytes = db.get(transactionIdsKey).map(_.data).getOrElse(Array[Byte]())
       if (publicKeys.contains(tx.proposition) && !tx.isInstanceOf[CoinbaseTransaction]) {
+
         updateTrxList(txsRawBytes ++ tx.txHash)
         db.update(
           new ByteArrayWrapper(tx.txHash),
@@ -110,7 +111,10 @@ class WalletStorage(val db: Store, val publicKeys: Set[PublicKey25519Proposition
           Seq((new ByteArrayWrapper(tx.txHash), new ByteArrayWrapper(tx.bytes)))
         )
         deleteBoxesById(tx.useBoxes)
-      } else {
+        putBoxes(tx.newBoxes.filter(box => box.isInstanceOf[AssetBox] &&
+          publicKeys.map(a => a.address).contains(box.asInstanceOf[AssetBox].proposition.address))
+          .map(_.asInstanceOf[AssetBox]).toSeq)
+      } else if(tx.newBoxes.filter(_.isInstanceOf[AssetBox]).count(box => publicKeys.map(a => a.address).contains(box.asInstanceOf[AssetBox].proposition.address)) > 0){
         updateTrxList(txsRawBytes ++ tx.txHash)
         db.update(
           new ByteArrayWrapper(tx.txHash),
@@ -158,7 +162,6 @@ class WalletStorage(val db: Store, val publicKeys: Set[PublicKey25519Proposition
   def deleteBoxesById(ids: Seq[ADKey]): Unit = {
     val newList = getBoxIds.foldLeft(Array[Byte]()) {
       case (buff, id) => if (ids.forall(!_.sameElements(id))) buff ++ id else buff }
-
     updateADKeysList(newList)
   }
 
