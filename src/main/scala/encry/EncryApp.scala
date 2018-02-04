@@ -4,6 +4,8 @@ import akka.actor.{ActorRef, Props}
 import encry.api.http.routes.{HistoryApiRoute, InfoRoute, TransactionsApiRoute}
 import encry.cli.CliListener
 import encry.cli.CliListener.StartListening
+import encry.client.gui.GuiManager
+import encry.client.gui.GuiManager.startGui
 import encry.local.TransactionGenerator.StartGeneration
 import encry.local.mining.EncryMiner
 import encry.local.mining.EncryMiner.StartMining
@@ -50,6 +52,8 @@ class EncryApp(args: Seq[String]) extends Application {
 
   val cliListenerRef: ActorRef = actorSystem.actorOf(Props(classOf[CliListener], nodeViewHolderRef, encrySettings))
 
+  val guiRef: ActorRef = actorSystem.actorOf(Props(classOf[GuiManager], encrySettings, nodeViewHolderRef))
+
   val swaggerConfig: String = Source.fromResource("api/openapi.yaml").getLines.mkString("\n")
 
   override val apiRoutes: Seq[ApiRoute] = Seq(
@@ -72,11 +76,14 @@ class EncryApp(args: Seq[String]) extends Application {
     minerRef ! StartMining
   }
 
+
   if (encrySettings.testingSettings.transactionGeneration) {
     val txGen = actorSystem.actorOf(
       Props(classOf[TransactionGenerator], nodeViewHolderRef, encrySettings.testingSettings, timeProvider))
     txGen ! StartGeneration
   }
+
+  guiRef ! startGui
 
   cliListenerRef ! StartListening
 }

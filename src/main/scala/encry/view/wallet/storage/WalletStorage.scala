@@ -27,7 +27,15 @@ class WalletStorage(val db: Store, val publicKeys: Set[PublicKey25519Proposition
     )
   }
 
-  /**
+  def getTxIds: Seq[Digest32] = {
+    val boxIdsRaw = db.get(transactionIdsKey).map(v => v.data).getOrElse(Array[Byte]())
+    (0 until (boxIdsRaw.length / 32)).foldLeft(Seq[Digest32]())((seq, i) =>
+      seq :+ Digest32 @@ boxIdsRaw.slice(32 * i, 32 * i + 32)
+    )
+  }
+
+
+    /**
     * Get keys of all transactions
     * @return seq of Digest32
     */
@@ -177,6 +185,12 @@ class WalletStorage(val db: Store, val publicKeys: Set[PublicKey25519Proposition
   def getAllBoxes: Seq[AssetBox] =
     getBoxIds.foldLeft(Seq[AssetBox]()) { case (buff, id) =>
       val bx = getBoxById(id)
+      if (bx.isSuccess) buff :+ bx.get else buff
+    }
+
+  def getAllTxs: Seq[EncryBaseTransaction] =
+    getTxIds.foldLeft(Seq[EncryBaseTransaction]()) { case (buff, id) =>
+      val bx = getTransactionById(id)
       if (bx.isSuccess) buff :+ bx.get else buff
     }
 

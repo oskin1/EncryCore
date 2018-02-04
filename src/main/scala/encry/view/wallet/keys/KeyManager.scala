@@ -114,13 +114,23 @@ case class KeyManager(store: LSMStore,
     updateKey(KeyManager.countKey, Ints.toByteArray(newKeysQty))
   }
 
+  def tryToLock(pwd: Array[Byte]): Boolean = {
+    if(!isLocked) lock(pwd)
+    isLocked
+  }
+
+  def tryToUnlock(pwd: Array[Byte]): Boolean = {
+    if(isLocked) unlock(pwd)
+    !isLocked
+  }
+
   /**
     * open KeyKeeperStorage and return set of keys inside store. If store dosn't exist or store was damaged return
     * only one key seq, which was generated from user-app password
     * @return
     */
   def unlock(key: Array[Byte] = passwdBytes.getOrElse(Array[Byte]())): Unit = {
-    updateKey(KeyManager.seedKey ,decryptAES(key))
+    updateKey(KeyManager.seedKey , decryptAES(key))
     updateKey(KeyManager.lockKey, KeyManager.unlockFlag)
   }
 
