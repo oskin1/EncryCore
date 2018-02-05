@@ -78,8 +78,6 @@ case class WalletWindow(guiManager: GuiManager) extends BaseWindow {
 
         val transferFrame: JFrame = new JFrame()
 
-        transferFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE)
-
         TransferWindow(guiManager, walletStorage, keyManager).run(transferFrame, WalletWindow(guiManager))
 
       }
