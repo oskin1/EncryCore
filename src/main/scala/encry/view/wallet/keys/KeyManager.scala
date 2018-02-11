@@ -212,7 +212,7 @@ case class KeyManager(store: LSMStore,
     */
   def delKey(): Try[Unit] = ???
 
-  def initStorage(seed: Array[Byte]): Unit = {
+  def initStorage(seed: Array[Byte] = Random.randomBytes(32)): Unit = {
 
     store.update(System.currentTimeMillis(),
       Seq(),
@@ -246,7 +246,7 @@ object KeyManager extends ScorexLogging {
 
   def readOrGenerate(settings: EncryAppSettings,
                      password: Option[Array[Byte]] = Option(Array[Byte]()),
-                     seed: Array[Byte] = Random.randomBytes()): KeyManager = {
+                     seed: Array[Byte] = Random.randomBytes(16)): KeyManager = {
 
     val dir = getKeysDir(settings)
     dir.mkdirs()
@@ -255,13 +255,12 @@ object KeyManager extends ScorexLogging {
 
     val keyManager = KeyManager(keysStore, settings.keyManagerSettings, password)
 
-    if (keyManager.keys.isEmpty) {
+    if (keyManager.keys.isEmpty && settings.nodeSettings.mining) {
       keyManager.initStorage(seed)
       if (settings.keyManagerSettings.lock && !keyManager.isLocked) {
         keyManager.lock()
       }
     }
-
     keyManager
   }
 

@@ -58,7 +58,8 @@ libraryDependencies ++= Seq(
   "org.scorexfoundation" %% "scrypto" % "2.0.3",
   "com.storm-enroute" %% "scalameter" % "0.8.+",
   "io.spray" %%  "spray-json" % "1.3.3",
-  "io.monix" %% "monix" % "2.3.3"
+  "io.monix" %% "monix" % "2.3.3",
+  "org.scodec" %% "scodec-bits" % "1.1.5"
 ) ++ networkDependencies ++ apiDependencies ++ loggingDependencies ++ testingDependencies
 
 val opts = Seq(
