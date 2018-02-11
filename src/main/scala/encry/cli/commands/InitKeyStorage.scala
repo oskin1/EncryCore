@@ -13,7 +13,6 @@ import encry.cli.Response
 import encry.settings.EncryAppSettings
 import encry.utils.mnemonic.Mnemonic
 import scorex.core.NodeViewHolder.GetDataFromCurrentView
-import scorex.crypto.encode.Base58
 
 import scala.util.Try
 
@@ -24,7 +23,11 @@ object InitKeyStorage extends Command {
     implicit val timeout: Timeout = Timeout(settings.scorexSettings.restApi.timeout)
     nodeViewHolderRef ?
       GetDataFromCurrentView[EncryHistory, UtxoState, EncryWallet, EncryMempool, Unit] { view =>
-        val mnemonicCode = Mnemonic.entropyToMnemonicCode(SecureRandom.getSeed(16))
+        val mnemonicCode = if(args.last.isEmpty || args.length == 1){
+          Mnemonic.entropyToMnemonicCode(SecureRandom.getSeed(16))
+        }else{
+          args.last
+        }
         println(s"Your mnemonic code is: ${mnemonicCode}")
         view.vault.keyManager.initStorage(Mnemonic.mnemonicCodeToBytes(mnemonicCode))
       }
