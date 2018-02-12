@@ -31,16 +31,8 @@ trait UtxoStateReader extends StateIndexManager with StateReader with ScorexLogg
     PersistentBatchAVLProver.create(bp, storage).get
   }
 
-  def boxById(boxId: ADKey): Option[EncryBaseBox] =
-    boxId.head match {
-      case OpenBox.typeId => persistentProver.unauthenticatedLookup(boxId)
-        .map(OpenBoxSerializer.parseBytes).flatMap(_.toOption)
-      case AssetBox.typeId => persistentProver.unauthenticatedLookup(boxId)
-        .map(AssetBoxSerializer.parseBytes).flatMap(_.toOption)
-      case PubKeyInfoBox.typeId => persistentProver.unauthenticatedLookup(boxId)
-        .map(PubKeyInfoBoxSerializer.parseBytes).flatMap(_.toOption)
-      case _ => None
-    }
+  def boxById(boxId: ADKey): Option[EncryBaseBox] = persistentProver.unauthenticatedLookup(boxId)
+    .map(bytes => StateModifierDeserializer.parseBytes(bytes, boxId.head)).flatMap(_.toOption)
 
   def typedBoxById[B <: EncryBaseBox](boxId: ADKey): Option[EncryBaseBox] =
     boxById(boxId) match {
@@ -80,7 +72,7 @@ trait UtxoStateReader extends StateIndexManager with StateReader with ScorexLogg
     boxesByAddress(address) match {
       case Some(bxs) =>
         Some(Portfolio(address,
-          Balance @@ bxs.filter(_.isInstanceOf[AssetBox]).map(_.asInstanceOf[AssetBox].amount).sum, Some(bxs)))
+          Balance @@ bxs.filter(_.isInstanceOf[AssetBox]).map(_.asInstanceOf[AssetBox].amount).sum, bxs))
       case _ => None
     }
 }

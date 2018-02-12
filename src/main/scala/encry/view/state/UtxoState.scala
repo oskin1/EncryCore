@@ -35,7 +35,7 @@ class UtxoState(override val version: VersionTag,
 
   private def onAdProofGenerated(proof: ADProofs): Unit = {
     if(nodeViewHolderRef.isEmpty) log.warn("Got proof while nodeViewHolderRef is empty")
-    nodeViewHolderRef.foreach(h => h ! LocallyGeneratedModifier(proof))
+    nodeViewHolderRef.foreach(_ ! LocallyGeneratedModifier(proof))
   }
 
   // TODO: Make sure all errors are being caught properly.
@@ -119,14 +119,15 @@ class UtxoState(override val version: VersionTag,
     ).flatten
 
     Try {
-      assert(txs.nonEmpty, "Empty transaction sequence passed.")
+      assert(txs.nonEmpty, "Got empty transaction sequence.")
 
       if (!(persistentProver.digest.sameElements(rootHash) &&
         storage.version.get.sameElements(rootHash) &&
         stateStore.lastVersionID.get.data.sameElements(rootHash))) Failure(new Error("Bad state version."))
 
       val mods = getAllStateChanges(txs).operations.map(ADProofs.toModification)
-      //todo .get
+
+      // TODO: Refactoring.
       mods.foldLeft[Try[Option[ADValue]]](Success(None)) { case (t, m) =>
         t.flatMap(_ => {
           val opRes = persistentProver.performOneOperation(m)
@@ -168,92 +169,48 @@ class UtxoState(override val version: VersionTag,
 
   override lazy val rootHash: ADDigest = persistentProver.digest
 
-  // TODO: Test.
-  // TODO: OPTIMISATION: Too many redundant signature validity checks here.
-  // TODO: Refactoring. Too many lines of code in one method.
-  // Carries out an exhaustive tx validation.
-  override def validate(tx: EncryBaseTransaction): Try[Unit] = Try {
+  /**
+    * Carries out an exhaustive validation of the given transaction.
+    *
+    * Transaction validation algorithm:
+    * 0. Check semantic validity of transaction
+    *    For each box referenced in transaction:
+    * 1. Check if box is in the state
+    * 2. Parse box from the state storage
+    * 3. Try to unlock the box, providing appropriate context
+    * 4. Make sure inputs.sum >= outputs.sum
+   */
+  override def validate(tx: EncryBaseTransaction): Try[Unit] =
+    tx.semanticValidity.map { _: Unit =>
 
-    tx.semanticValidity.failed
-    tx match {
-      case tx: PaymentTransaction =>
-        var inputsSumCounter: Long = 0
-        tx.useBoxes.foreach { bxId =>
-          persistentProver.unauthenticatedLookup(bxId) match {
-            case Some(data) =>
-              bxId.head match {
-                case OpenBox.typeId =>
-                  OpenBoxSerializer.parseBytes(data) match {
-                    case Success(box) =>
-                      box.unlockTry(tx, ctxOpt = Some(Context(stateHeight)))
-                      inputsSumCounter += box.amount
-                    case Failure(_) =>
-                      throw new Error(s"Unable to parse Box referenced in TX ${tx.txHash}")
-                  }
-                case AssetBox.typeId =>
-                  AssetBoxSerializer.parseBytes(data) match {
-                    case Success(box) =>
-                      box.unlockTry(tx)
-                      inputsSumCounter += box.amount
-                    case Failure(_) =>
-                      throw new Error(s"Unable to parse Box referenced in TX ${tx.txHash}")
-                  }
-                case _ => throw new Exception("Got Modifier of unknown type.")
-              }
-            case None =>
-              throw new Error(s"Cannot find Box referenced in TX ${tx.txHash}")
-          }
-        }
-        if (tx.createBoxes.map(i => i._2).sum > inputsSumCounter)
-          throw new Error("Inputs total amount mismatches Output sum.")
+      implicit val context: Option[Context] = Some(Context(stateHeight))
 
-      case tx: CoinbaseTransaction =>
-        tx.useBoxes.foreach { bxId =>
-          persistentProver.unauthenticatedLookup(bxId) match {
-            case Some(data) =>
-              bxId.head match {
-                case OpenBox.typeId =>
-                  OpenBoxSerializer.parseBytes(data) match {
-                    case Success(box) =>
-                      box.unlockTry(tx, ctxOpt = Some(Context(stateHeight)))
-                    case Failure(_) =>
-                      throw new Error(s"Unable to parse Box referenced in TX ${tx.txHash}")
-                  }
-                case _ =>
-                  throw new Error("Got Modifier of unknown type.")
-              }
-            case None =>
-              throw new Exception(s"Cannot find Box referenced in TX ${tx.txHash}")
-          }
-        }
+      val bxs = tx.useBoxes.map(bxId => persistentProver.unauthenticatedLookup(bxId)
+        .map(bytes => StateModifierDeserializer.parseBytes(bytes, bxId.head))
+        .flatMap(_.toOption)).foldLeft(IndexedSeq[EncryBaseBox]())((acc, bxOpt) => bxOpt match {
+          case Some(bx) if bx.unlockTry(tx, None).isSuccess => acc :+ bx
+          case _ => acc
+        })
 
-      case tx: AddPubKeyInfoTransaction =>
-        tx.useBoxes.foreach { bxId =>
-          persistentProver.unauthenticatedLookup(bxId) match {
-            case Some(data) =>
-              bxId.head match {
-                case AssetBox.typeId =>
-                  AssetBoxSerializer.parseBytes(data) match {
-                    case Success(box) =>
-                      box.unlockTry(tx)
-                    case Failure(_) =>
-                      throw new Error(s"Unable to parse Box referenced in TX ${tx.txHash}")
-                  }
-                case _ =>
-                  throw new Error("Got Modifier of unknown type.")
-              }
-            case None =>
-              throw new Exception(s"Cannot find Box referenced in TX ${tx.txHash}")
-          }
-        }
+      val debit = bxs.foldLeft(0L)((acc, bx) => bx match {
+        case acbx: AmountCarryingBox => acc + acbx.amount
+        case _ => acc
+      })
 
-      case _ => throw new Error("Got Modifier of unknown type.")
+      val credit = tx match {
+        case tx: PaymentTransaction => tx.createBoxes.foldLeft(0L)(_ + _._2) + tx.fee
+        case _ => tx.fee
+      }
+
+      if (bxs.size < tx.useBoxes.size) throw new Error(s"Failed to spend some boxes referenced in $tx")
+      else if (debit < credit) throw new Error(s"Non-positive balance in $tx")
     }
-  }
 
-  // Filters semantically valid and non conflicting transactions.
-  // Picks the transaction with highest fee if conflict detected.
-  // Note, this returns txs ordered chronologically.
+  /**
+    * Filters semantically valid and non conflicting transactions.
+    * Picks the transaction with highest fee if conflict detected.
+    * Note, this returns txs ordered chronologically.
+    */
   // TODO: OPTIMISATION: Too many sorting here.
   override def filterValid(txs: Seq[EncryBaseTransaction]): Seq[EncryBaseTransaction] =
     super.filterValid(txs.sortBy(_.timestamp))
