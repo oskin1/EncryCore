@@ -41,16 +41,9 @@ class EncryWallet(val walletStore: Store, val keyManager: KeyManager)
   override def scanPersistent(modifier: EncryPersistentModifier): EncryWallet = {
     modifier match {
       case a: EncryBlock => {
+        walletStorage.putBlock(a)
         this
       }
-//      case a: EncryBlock => a.transactions.foldLeft(this) { case (_, tx) =>
-////        tx match {
-////          case tx @ (_: PaymentTransaction | _: CoinbaseTransaction) =>
-////            walletStorage.putTransaction(tx)
-////            this
-////          case _ => this // Do nothing.
-////        }
-//      }
       case _: EncryBlockHeader => this
     }
   }
