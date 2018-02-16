@@ -6,7 +6,7 @@ import scorex.core.serialization.{BytesSerializable, Serializer}
 
 import scala.util.Try
 
-case class WalletBox(box: AssetBox) extends BytesSerializable{
+case class WalletBox(box: EncryBaseBox) extends BytesSerializable{
 
   override type M = WalletBox
 
@@ -15,13 +15,13 @@ case class WalletBox(box: AssetBox) extends BytesSerializable{
 
 object WalletBoxSerializer extends Serializer[WalletBox]{
 
-  override def toBytes(obj: WalletBox): Array[Byte] =
-    Bytes.concat(
-      obj.box.serializer.toBytes(obj.box)
-    )
+  override def toBytes(obj: WalletBox): Array[Byte] = obj.box.typeId +: obj.box.bytes
 
   override def parseBytes(bytes: Array[Byte]): Try[WalletBox] = Try {
-    val box = AssetBoxSerializer.parseBytes(bytes).get
-    WalletBox(box)
+    bytes.head match {
+      case AssetBox.typeId => WalletBox(AssetBoxSerializer.parseBytes(bytes.slice(1, bytes.length - 1)).get)
+      case PubKeyInfoBox.typeId => WalletBox(PubKeyInfoBoxSerializer.parseBytes(bytes.slice(1, bytes.length - 1)).get)
+      case _ => throw new Error(s"Unsupported box type")
+    }
   }
 }

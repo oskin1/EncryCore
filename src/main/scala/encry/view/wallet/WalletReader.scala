@@ -2,7 +2,7 @@ package encry.view.wallet
 
 import com.google.common.primitives.Longs
 import encry.modifiers.mempool.PaymentTransaction
-import encry.modifiers.state.box.AssetBox
+import encry.modifiers.state.box.{EncryBaseBox}
 import encry.view.wallet.storage.WalletStorage
 import io.iohk.iodb.Store
 import scorex.crypto.authds.ADKey
@@ -13,9 +13,9 @@ trait WalletReader {
 
   val walletStorage: WalletStorage
 
-  def getBoxById(id: ADKey): Option[AssetBox] = walletStorage.getBoxById(id)
+  def getBoxById(id: ADKey): Option[EncryBaseBox] = walletStorage.getBoxById(id)
 
-  def getAvailableBoxes: Seq[AssetBox] = walletStorage.getAllBoxes
+  def getAvailableBoxes: Seq[EncryBaseBox] = walletStorage.getAllBoxes
 
   def getAllTransactions: Seq[PaymentTransaction] =
     walletStorage.getTransactionIds.foldLeft(Seq[PaymentTransaction]()) { case (buff, id) =>

@@ -48,7 +48,7 @@ object AddPubKeyInfo extends Command {
           val proposition = view.vault.keyManager.keys.head.publicImage
           val timestamp = System.currentTimeMillis() // TODO: Use NTP.
           val boxes = view.vault.walletStorage.getAllBoxes.foldLeft(Seq[AssetBox]()) {
-            case (seq, box) => if (seq.map(_.amount).sum < fee) seq :+ box else seq
+            case (seq, box: AssetBox) => if (seq.map(_.amount).sum < fee) seq :+ box else seq
           }
           val useBoxes = boxes.map(_.id).toIndexedSeq
           val change = boxes.map(_.amount).sum - fee

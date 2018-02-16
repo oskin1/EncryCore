@@ -25,8 +25,9 @@ trait EncryBaseStorage extends AutoCloseable with ScorexLogging {
   def updateWithReplacement(id: ModifierId,
                             idsToRemove: Seq[ByteArrayWrapper],
                             toInsert: Seq[(ByteArrayWrapper, ByteArrayWrapper)]): Unit = {
-    db.update(ByteArrayWrapper(Algos.hash(id)), idsToRemove, Seq())
-    db.update(ByteArrayWrapper(id), Seq(), toInsert)
+    db.update(ByteArrayWrapper(Algos.hash(id)), idsToRemove.distinct, Seq())
+    db.update(ByteArrayWrapper(id), Seq(), toInsert.distinct)
+
   }
 
   def getAndUnpackComplexValue(key: ByteArrayWrapper, unitLen: Int): Option[Seq[Array[Byte]]] =
