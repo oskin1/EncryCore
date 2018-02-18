@@ -97,15 +97,16 @@ class EncryMiner(viewHolderRef: ActorRef,
       val vault = v.vault
 
       val bestHeaderOpt = history.bestFullBlockOpt.map(_.header)
-
+        
       if ((bestHeaderOpt.isDefined || settings.nodeSettings.offlineGeneration) &&
         !pool.isEmpty &&
         vault.keyManager.keys.nonEmpty) Try {
 
+
         lazy val timestamp = timeProvider.time()
         val height = Height @@ (bestHeaderOpt.map(_.height).getOrElse(0) + 1)
 
-        var txs = state.filterValid(pool.takeAllUnordered.toSeq)
+        var txs = state.filterValid(pool.container.getTxsByStrategy())
           .foldLeft(Seq[EncryBaseTransaction]()) { case (txsBuff, tx) =>
             // 124 is approximate CoinbaseTx.length in bytes.
             if ((txsBuff.map(_.length).sum + tx.length) <= settings.chainSettings.blockMaxSize - 124) txsBuff :+ tx

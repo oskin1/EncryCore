@@ -22,6 +22,7 @@ object Help extends Command {
         |wallet        -balance         None           Show balance of current wallet
         |wallet        -transfer        addr;amount    Transfer `amount` to `addr`ess
         |wallet        -addPubKeyInfo   pk;ppk;pki;f   Add pub key info to the blockchain
+        |info          -mempoolSize     None           Count of trx in mempool
         |app           -help            None           Show all supported commands
       """
         .stripMargin))

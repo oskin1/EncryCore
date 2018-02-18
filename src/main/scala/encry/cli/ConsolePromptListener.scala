@@ -27,6 +27,10 @@ case class ConsolePromptListener(nodeViewHolderRef: ActorRef, settings: EncryApp
     "-addPubKeyInfo" -> AddPubKeyInfo
   ))
 
+  commands.update("info", mutable.HashMap(
+    "-mempoolSize" -> MempoolSize
+  ))
+
   commands.update("wallet", mutable.HashMap(
     "-addrs" -> PrintMyAddrs,
     "-addKey" -> AddKey,
