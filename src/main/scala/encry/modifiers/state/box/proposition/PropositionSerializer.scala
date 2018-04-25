@@ -15,6 +15,8 @@ object PropositionSerializer extends Serializer[EncryProposition] {
       HeightProposition.TypeId +: HeightPropositionSerializer.toBytes(hp)
     case cp: ContractProposition =>
       ContractProposition.TypeId +: ContractPropositionSerializer.toBytes(cp)
+    case dp: DeferredProposition =>
+      DeferredProposition.TypeId +: DeferredPropositionSerializer.toBytes(dp)
     case m => throw new Error(s"Serialization of unknown proposition type: $m")
   }
 
@@ -23,6 +25,7 @@ object PropositionSerializer extends Serializer[EncryProposition] {
     case AccountProposition.`TypeId` => AccountPropositionSerializer.parseBytes(bytes.tail)
     case HeightProposition.`TypeId` => HeightPropositionSerializer.parseBytes(bytes.tail)
     case ContractProposition.`TypeId` => ContractPropositionSerializer.parseBytes(bytes.tail)
+    case DeferredProposition.`TypeId` => DeferredPropositionSerializer.parseBytes(bytes.tail)
     case t => Failure(new Error(s"Got unknown typeId: $t"))
   }
 }

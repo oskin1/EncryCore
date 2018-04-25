@@ -42,5 +42,7 @@ object Account {
 
   def decodeAddress(address: Address): Array[Byte] = Base58.decode(address).get
 
+  def encodeAddress(bytes: Array[Byte]): Address = Base58.encode(bytes)
+
   def validAddress(address: Address): Boolean = Account(address).isValid
 }

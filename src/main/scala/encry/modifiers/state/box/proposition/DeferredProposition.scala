@@ -37,7 +37,7 @@ object DeferredProposition {
 
 object DeferredPropositionSerializer extends Serializer[DeferredProposition] {
 
-  val Length: Int = Account.AddressLength + 1
+  val Length: Int = Account.AddressLength + 1 + 4
 
   override def toBytes(obj: DeferredProposition): Array[Byte] = Bytes.concat(
     AccountProposition.TypeId +: obj.account.bytes,
