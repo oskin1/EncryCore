@@ -4,6 +4,7 @@ import java.io.File
 
 import akka.actor.ActorRef
 import com.google.common.primitives.{Ints, Longs}
+import encry.account.Address
 import encry.consensus.emission.TokenSupplyController
 import encry.modifiers.EncryPersistentModifier
 import encry.modifiers.history.ADProofs
@@ -12,12 +13,14 @@ import encry.modifiers.history.block.header.EncryBlockHeader
 import encry.modifiers.mempool.EncryBaseTransaction
 import encry.modifiers.state.StateModifierDeserializer
 import encry.modifiers.state.box._
-import encry.modifiers.state.box.proposition.HeightProposition
+import encry.modifiers.state.box.proposition.{DeferredProposition, HeightProposition}
 import encry.settings.{Algos, Constants}
 import encry.view.history.Height
+import encry.view.state.UtxoState.CommitmentIndices
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore, Store}
 import scorex.core.NodeViewHolder.ReceivableMessages.LocallyGeneratedModifier
 import scorex.core.VersionTag
+import scorex.core.transaction.box.Box.Amount
 import scorex.core.utils.ScorexLogging
 import scorex.crypto.authds.avltree.batch._
 import scorex.crypto.authds.{ADDigest, ADValue, SerializedAdProof}
@@ -29,6 +32,7 @@ class UtxoState(override val version: VersionTag,
                 override val height: Height,
                 override val stateStore: Store,
                 val lastBlockTimestamp: Long,
+                val commitmentsTable: CommitmentsTable,
                 nodeViewHolderRef: Option[ActorRef])
   extends EncryState[UtxoState] with UtxoStateReader with TransactionValidator {
 
@@ -66,7 +70,8 @@ class UtxoState(override val version: VersionTag,
         s"root hash ${Algos.encode(rootHash)} at height $height")
 
       applyTransactions(block.payload.transactions, block.header.stateRoot).map { _ =>
-        val md = metadata(VersionTag @@ block.id, block.header.stateRoot, Height @@ block.header.height, block.header.timestamp)
+        val md = metadata(VersionTag @@ block.id, block.header.stateRoot,
+          Height @@ block.header.height, block.header.timestamp, commitmentsTable)
         val proofBytes = persistentProver.generateProofAndUpdateStorage(md)
         val proofHash = ADProofs.proofDigest(proofBytes)
 
@@ -83,7 +88,8 @@ class UtxoState(override val version: VersionTag,
         else if (!(block.header.stateRoot sameElements persistentProver.digest))
           throw new Error("Calculated stateRoot is not equal to the declared one.")
 
-        new UtxoState(VersionTag @@ block.id, Height @@ block.header.height, stateStore, lastBlockTimestamp, nodeViewHolderRef)
+        new UtxoState(VersionTag @@ block.id, Height @@ block.header.height,
+          stateStore, lastBlockTimestamp, commitmentsTable, nodeViewHolderRef)
       }.recoverWith[UtxoState] { case e =>
         log.warn(s"Error while applying block with header ${block.header.encodedId} to UTXOState with root" +
           s" ${Algos.encode(rootHash)}: ", e)
@@ -91,7 +97,7 @@ class UtxoState(override val version: VersionTag,
       }
 
     case header: EncryBlockHeader =>
-      Success(new UtxoState(VersionTag @@ header.id, height, stateStore, lastBlockTimestamp, nodeViewHolderRef))
+      Success(new UtxoState(VersionTag @@ header.id, height, stateStore, lastBlockTimestamp, commitmentsTable, nodeViewHolderRef))
 
     case _ => Failure(new Error("Got Modifier of unknown type."))
   }
@@ -116,7 +122,7 @@ class UtxoState(override val version: VersionTag,
         val rollbackResult = prover.rollback(ADDigest @@ v.data).map { _ =>
           val stateHeight = stateStore.get(ByteArrayWrapper(UtxoState.bestHeightKey))
             .map(d => Ints.fromByteArray(d.data)).getOrElse(Constants.Chain.GenesisHeight)
-          new UtxoState(version, Height @@ stateHeight, stateStore, lastBlockTimestamp, nodeViewHolderRef) {
+          new UtxoState(version, Height @@ stateHeight, stateStore, lastBlockTimestamp, commitmentsTable, nodeViewHolderRef) {
             override protected lazy val persistentProver: PersistentBatchAVLProver[Digest32, Algos.HF] = prover
           }
         }
@@ -154,13 +160,18 @@ class UtxoState(override val version: VersionTag,
 
       if (tx.fee < tx.minimalFee && !tx.isCoinbase) throw new Error(s"Low fee in $tx")
 
-      val bxs = tx.unlockers.flatMap(u => persistentProver.unauthenticatedLookup(u.boxId)
+      val (bxs, indices) = tx.unlockers.flatMap(u => persistentProver.unauthenticatedLookup(u.boxId)
         .map(bytes => StateModifierDeserializer.parseBytes(bytes, u.boxId.head))
-        .map(t => t.toOption -> u.proofOpt)).foldLeft(IndexedSeq[EncryBaseBox]()) { case (acc, (bxOpt, proofOpt)) =>
+        .map(t => t.toOption -> u.proofOpt))
+        .foldLeft(IndexedSeq[EncryBaseBox](), Seq[(Address, Amount)]()) { case ((acc, ind), (bxOpt, proofOpt)) =>
           bxOpt match {
             // If `proofOpt` from unlocker is `None` then `tx.signature` is used as a default proof.
-            case Some(bx) if bx.proposition.unlockTry(proofOpt.getOrElse(tx.signature)).isSuccess => acc :+ bx
-            case _ => throw new Error(s"Failed to spend some boxes referenced in $tx")
+            case Some(bx) if bx.proposition.unlockTry(proofOpt.getOrElse(tx.signature)).isSuccess =>
+              bx match {
+                case AssetBox(p: DeferredProposition, _, amount, None) => (acc :+ bx) -> (ind :+ (p.account.address, -amount))
+                case _ => (acc :+ bx) -> ind
+              }
+            case _ => throw new Error(s"Failed to access some boxes referenced in $tx")
           }
         }
 
@@ -176,6 +187,8 @@ class UtxoState(override val version: VersionTag,
 
 object UtxoState extends ScorexLogging {
 
+  type CommitmentIndices = Seq[(Address, Amount)]
+
   private lazy val bestVersionKey = Algos.hash("best_state_version")
 
   private lazy val bestHeightKey = Algos.hash("state_height")
@@ -190,18 +203,24 @@ object UtxoState extends ScorexLogging {
       .map(d => Ints.fromByteArray(d.data)).getOrElse(Constants.Chain.PreGenesisHeight)
     val lastBlockTimestamp = stateStore.get(ByteArrayWrapper(lastBlockTimeKey))
       .map(d => Longs.fromByteArray(d.data)).getOrElse(0L)
-    new UtxoState(VersionTag @@ stateVersion, Height @@ stateHeight, stateStore, lastBlockTimestamp, nodeViewHolderRef)
+    val commitmentsTable = stateStore.get(ByteArrayWrapper(CommitmentsTable.Key)).flatMap(d =>
+      CommitmentsTableSerializer.parseBytes(d.data).toOption).getOrElse(CommitmentsTable.empty)
+    new UtxoState(VersionTag @@ stateVersion, Height @@ stateHeight, stateStore, lastBlockTimestamp, commitmentsTable, nodeViewHolderRef)
   }
 
-  private def metadata(modId: VersionTag, stateRoot: ADDigest,
-                       height: Height, blockTimestamp: Long): Seq[(Array[Byte], Array[Byte])] = {
+  private def metadata(modId: VersionTag,
+                       stateRoot: ADDigest,
+                       height: Height,
+                       blockTimestamp: Long,
+                       commitmentsTable: CommitmentsTable): Seq[(Array[Byte], Array[Byte])] = {
     val idStateDigestIdxElem: (Array[Byte], Array[Byte]) = modId -> stateRoot
     val stateDigestIdIdxElem = Algos.hash(stateRoot) -> modId
     val bestVersion = bestVersionKey -> modId
     val stateHeight = bestHeightKey -> Ints.toByteArray(height)
     val lastBlockTimestamp = lastBlockTimeKey -> Longs.toByteArray(blockTimestamp)
+    val ct = CommitmentsTable.Key -> commitmentsTable.bytes
 
-    Seq(idStateDigestIdxElem, stateDigestIdIdxElem, bestVersion, stateHeight, lastBlockTimestamp)
+    Seq(idStateDigestIdxElem, stateDigestIdIdxElem, bestVersion, stateHeight, lastBlockTimestamp, ct)
   }
 
   def fromBoxHolder(bh: BoxHolder, stateDir: File, nodeViewHolderRef: Option[ActorRef]): UtxoState = {
@@ -212,10 +231,13 @@ object UtxoState extends ScorexLogging {
 
     log.info(s"Generating UTXO State with ${bh.boxes.size} boxes")
 
-    new UtxoState(EncryState.genesisStateVersion, Constants.Chain.PreGenesisHeight, stateStore, 0L, nodeViewHolderRef) {
+    new UtxoState(EncryState.genesisStateVersion, Constants.Chain.PreGenesisHeight, stateStore, 0L, CommitmentsTable.empty, nodeViewHolderRef) {
       override protected lazy val persistentProver: PersistentBatchAVLProver[Digest32, Algos.HF] =
         PersistentBatchAVLProver.create(
-          p, storage, metadata(EncryState.genesisStateVersion, p.digest, Constants.Chain.PreGenesisHeight, 0L), paranoidChecks = true
+          p,
+          storage,
+          metadata(EncryState.genesisStateVersion, p.digest, Constants.Chain.PreGenesisHeight, 0L, CommitmentsTable.empty),
+          paranoidChecks = true
         ).get.ensuring(_.digest sameElements storage.version.get)
     }
   }
