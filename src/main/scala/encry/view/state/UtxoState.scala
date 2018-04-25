@@ -112,7 +112,7 @@ class UtxoState(override val version: VersionTag,
   }
 
   def proofsForTransactions(txs: Seq[EncryBaseTransaction]): Try[(SerializedAdProof, ADDigest)] = {
-    log.debug(s"Generating proof for ${txs.length} transactions ...")
+    log.debug(s"Generating proof for ${txs.length} transactions")
     val rootHash = persistentProver.digest
     if (txs.isEmpty) {
       Failure(new Error("Got empty transaction sequence"))

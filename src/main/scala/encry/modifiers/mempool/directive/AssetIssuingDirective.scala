@@ -48,7 +48,7 @@ case class AssetIssuingDirective(script: EncryContract,
 
 object AssetIssuingDirective {
 
-  val TypeId: DTypeId = 5.toByte
+  val TypeId: DTypeId = 3.toByte
 
   implicit val jsonEncoder: Encoder[AssetIssuingDirective] = (d: AssetIssuingDirective) => Map(
     "typeId" -> d.typeId.asJson,
