@@ -46,20 +46,28 @@ class UtxoState(override val version: VersionTag,
   }
 
   private[state] def applyTransactions(txs: Seq[EncryBaseTransaction],
-                                       expectedDigest: ADDigest): Try[Unit] = Try {
-    txs.foreach(tx => validate(tx).map { _ =>
+                                       expectedDigest: ADDigest): Try[CommitmentIndices] = Try {
+    val indices = txs.map(tx => validate(tx).map { indOpt =>
       getStateChanges(tx).operations.map(ADProofs.toModification)
         .foldLeft[Try[Option[ADValue]]](Success(None)) { case (t, m) =>
         t.flatMap { _ =>
           persistentProver.performOneOperation(m)
         }
       }.get
-    }.orElse(throw new Error(s"$tx validation failed.")))
+      indOpt
+    }.getOrElse(throw new Error(s"$tx validation failed.")))
+
+    val indicesAssembled = indices.foldLeft(Seq[(Address, Amount)]()) {
+      case (acc, Some(idx)) =>  acc ++ idx
+      case (acc, _) => acc
+    }
 
     // Checks whether the outcoming result is the same as expected.
     if (!expectedDigest.sameElements(persistentProver.digest))
       throw new Error(s"Digest after txs application is wrong. ${Algos.encode(expectedDigest)} expected, " +
         s"${Algos.encode(persistentProver.digest)} given")
+
+    indicesAssembled
   }
 
   // State transition function `APPLY(S,TX) -> S'`.
@@ -69,9 +77,10 @@ class UtxoState(override val version: VersionTag,
       log.debug(s"Applying block with header ${block.header.encodedId} to UtxoState with " +
         s"root hash ${Algos.encode(rootHash)} at height $height")
 
-      applyTransactions(block.payload.transactions, block.header.stateRoot).map { _ =>
+      applyTransactions(block.payload.transactions, block.header.stateRoot).map { indices =>
+        val cTable = commitmentsTable.updated(indices)
         val md = metadata(VersionTag @@ block.id, block.header.stateRoot,
-          Height @@ block.header.height, block.header.timestamp, commitmentsTable)
+          Height @@ block.header.height, block.header.timestamp, cTable)
         val proofBytes = persistentProver.generateProofAndUpdateStorage(md)
         val proofHash = ADProofs.proofDigest(proofBytes)
 
@@ -88,8 +97,8 @@ class UtxoState(override val version: VersionTag,
         else if (!(block.header.stateRoot sameElements persistentProver.digest))
           throw new Error("Calculated stateRoot is not equal to the declared one.")
 
-        new UtxoState(VersionTag @@ block.id, Height @@ block.header.height,
-          stateStore, lastBlockTimestamp, commitmentsTable, nodeViewHolderRef)
+        new UtxoState(VersionTag @@ block.id, Height @@ block.header.height, stateStore,
+          lastBlockTimestamp, cTable, nodeViewHolderRef)
       }.recoverWith[UtxoState] { case e =>
         log.warn(s"Error while applying block with header ${block.header.encodedId} to UTXOState with root" +
           s" ${Algos.encode(rootHash)}: ", e)
@@ -151,7 +160,7 @@ class UtxoState(override val version: VersionTag,
     *    For all asset types:
     * 4. Make sure inputs.sum >= outputs.sum
    */
-  override def validate(tx: EncryBaseTransaction): Try[Unit] =
+  override def validate(tx: EncryBaseTransaction): Try[Option[CommitmentIndices]] =
     tx.semanticValidity.map { _: Unit =>
 
       import encry.utils.BalanceCalculator._
@@ -160,16 +169,16 @@ class UtxoState(override val version: VersionTag,
 
       if (tx.fee < tx.minimalFee && !tx.isCoinbase) throw new Error(s"Low fee in $tx")
 
-      val (bxs, indices) = tx.unlockers.flatMap(u => persistentProver.unauthenticatedLookup(u.boxId)
+      val (bxs, negIndices) = tx.unlockers.flatMap(u => persistentProver.unauthenticatedLookup(u.boxId)
         .map(bytes => StateModifierDeserializer.parseBytes(bytes, u.boxId.head))
         .map(t => t.toOption -> u.proofOpt))
-        .foldLeft(IndexedSeq[EncryBaseBox](), Seq[(Address, Amount)]()) { case ((acc, ind), (bxOpt, proofOpt)) =>
+        .foldLeft(IndexedSeq[EncryBaseBox](), Seq[(Address, Amount)]()) { case ((acc, indices), (bxOpt, proofOpt)) =>
           bxOpt match {
             // If `proofOpt` from unlocker is `None` then `tx.signature` is used as a default proof.
             case Some(bx) if bx.proposition.unlockTry(proofOpt.getOrElse(tx.signature)).isSuccess =>
               bx match {
-                case AssetBox(p: DeferredProposition, _, amount, None) => (acc :+ bx) -> (ind :+ (p.account.address, -amount))
-                case _ => (acc :+ bx) -> ind
+                case AssetBox(p: DeferredProposition, _, amount, None) => (acc :+ bx) -> (indices :+ (p.account.address, -amount))
+                case _ => (acc :+ bx) -> indices
               }
             case _ => throw new Error(s"Failed to access some boxes referenced in $tx")
           }
@@ -182,6 +191,15 @@ class UtxoState(override val version: VersionTag,
       }
 
       if (!validBalance) throw new Error(s"Non-positive balance in $tx")
+
+      val posIndices = tx.newBoxes.foldLeft(Seq[(Address, Amount)]()) { case (acc, bx) =>
+        bx match {
+          case AssetBox(p: DeferredProposition, _, amount, None) => acc :+ (p.account.address, amount)
+          case _ => acc
+        }
+      }
+
+      Some(negIndices ++ posIndices)
     }
 }
 

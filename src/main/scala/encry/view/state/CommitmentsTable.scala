@@ -36,7 +36,7 @@ object CommitmentsTableSerializer extends Serializer[CommitmentsTable] {
 
   override def toBytes(obj: CommitmentsTable): Array[Byte] = Version +: obj.c.map { case (addr, am) =>
     Account.decodeAddress(addr) ++ Longs.toByteArray(am)
-  }.reduce(_ ++ _)
+  }.foldLeft(Array.empty[Byte])(_ ++ _)
 
   override def parseBytes(bytes: Array[Byte]): Try[CommitmentsTable] = Try {
     val eltLen = Account.AddressLength + 8

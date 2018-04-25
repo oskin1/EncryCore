@@ -1,6 +1,7 @@
 package encry.view.state
 
 import encry.modifiers.mempool.EncryBaseTransaction
+import encry.view.state.UtxoState.CommitmentIndices
 import scorex.core.PersistentNodeViewModifier
 import scorex.core.transaction._
 import scorex.core.transaction.box.proposition.Proposition
@@ -14,7 +15,7 @@ trait TransactionValidator extends StateFeature {
 
   def filterValid(txs: Seq[EncryBaseTransaction]): Seq[EncryBaseTransaction] = txs.filter(isValid)
 
-  def validate(tx: EncryBaseTransaction): Try[Unit]
+  def validate(tx: EncryBaseTransaction): Try[Option[CommitmentIndices]]
 }
 
 trait ModifierValidator[M <: PersistentNodeViewModifier] extends StateFeature {
