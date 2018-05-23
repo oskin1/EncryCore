@@ -47,6 +47,10 @@ object Transfer extends Command {
 
           nodeViewHolder ! LocallyGeneratedTransaction[EncryProposition, EncryTransaction](tx)
 
+          println(s"Transaction length:    ${tx.bytes.length}")
+          println(s"Outputs lengths:       ${tx.newBoxes.map(_.bytes.length)}")
+          println(s"Outputs lengths total: ${tx.newBoxes.map(_.bytes.length).sum}")
+
           tx
         }.toOption.map(tx => Some(Response(tx.toString))).getOrElse(Some(Response("Operation failed. Malformed data.")))
       }).mapTo[Option[Response]]
