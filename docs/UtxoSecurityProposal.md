@@ -20,7 +20,7 @@ Supposing transaction contains full inputs we have the following validation algo
 
 0. Check semantic validity of transaction
 1. For each input in transaction:
-    1. Check semantic validity of input2
+    1. Check semantic validity of input
     2. Try to unlock the box, providing appropriate context and proof
     3. Check whether its hash is presented in UOHS
 4. Make sure inputs.sum >= outputs.sum
@@ -51,4 +51,4 @@ Current transaction structure:
 
 Storing full versions of inputs in transaction will lead to increase of its size. Now it contains only ids of inputs which are
 32 bytes length, current transaction size is ~265 bytes average. Supposing that average input size is 46 bytes and average quantity
-is 1, the increase of total transaction length will be about ~ 5.2%, the decrease of state size ~ 43%.
+is 1, the increase of total transaction length will be about ~ 5.2%, the decrease of state size ~ 43% (the worst case).
