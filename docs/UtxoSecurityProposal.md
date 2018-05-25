@@ -25,7 +25,7 @@ Supposing transaction contains full inputs we have the following validation algo
     3. Check whether its hash is presented in UOHS
 4. Make sure inputs.sum >= outputs.sum
 
-## Research
+## Analysis
 
 To find out whether the security overhead achieved by such approach overweights its drawbacks (network load increase), lets
 take a look at the structure of the most basic type of transaction:
@@ -34,23 +34,19 @@ Payment transaction example (Length in bytes by different components):
 
     Transaction length:    264
     Inputs lengths (id):   Vector(32)
-    Outputs lengths:       Vector(57, 57, 20)
-    Outputs lengths total: 134
+    Directives lengths:    Vector(49, 49)
 
 Average transaction size ~ 265 bytes (250 bytes in Bitcoin)
 Average input size       ~ 46 bytes
 
 Current transaction structure:
 
-    senderPubKey:   32 bytes
-    signature:      64 bytes
-    timestamp:       8 bytes
-    fee:             8 bytes
-    inputs:         32 bytes / unit
-    outputs:       ~46 bytes / unit
+    timestamp:         8 bytes
+    fee:               8 bytes
+    defaultProofOpt: ~64 bytes
+    inputs:           32 bytes / unit
+    derectives:      ~49 bytes / unit
 
 Storing full versions of inputs in transaction will lead to increase of its size. Now it contains only ids of inputs which are
 32 bytes length, current transaction size is ~265 bytes average. Supposing that average input size is 46 bytes and average quantity
 is 1, the increase of total transaction length will be about ~ 5.2%, the decrease of state size ~ 31% (in case of minimal box size).
-
-// TODO: Compare the impact of transactions of maximum size.
