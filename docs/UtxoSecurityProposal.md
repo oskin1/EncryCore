@@ -51,4 +51,4 @@ Current transaction structure:
 
 Storing full versions of inputs in transaction will lead to increase of its size. Now it contains only ids of inputs which are
 32 bytes length, current transaction size is ~265 bytes average. Supposing that average input size is 46 bytes and average quantity
-is 1, the increase of total transaction length will be about ~ 5.2%, the decrease of state size ~ 43% (the worst case).
+is 1, the increase of total transaction length will be about ~ 5.2%, the decrease of state size ~ 31% (the worst case).
