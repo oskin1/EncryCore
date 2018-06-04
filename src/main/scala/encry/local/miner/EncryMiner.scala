@@ -38,10 +38,7 @@ class EncryMiner extends Actor with ScorexLogging {
   var candidateOpt: Option[CandidateBlock] = None
   var miningWorkers: Seq[ActorRef] = Seq.empty[ActorRef]
 
-  override def preStart(): Unit = {
-    context.system.eventStream.subscribe(self, classOf[SemanticallySuccessfulModifier[_]])
-    if (encrySettings.nodeSettings.mining && encrySettings.nodeSettings.offlineGeneration) miner ! StartMining
-  }
+  override def preStart(): Unit = context.system.eventStream.subscribe(self, classOf[SemanticallySuccessfulModifier[_]])
 
   override def postStop(): Unit = killAllWorkers()
 
