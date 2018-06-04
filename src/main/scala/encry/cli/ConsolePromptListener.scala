@@ -3,13 +3,16 @@ package encry.cli
 import akka.actor.Actor
 import encry.cli.commands._
 import scorex.core.utils.ScorexLogging
+
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{Failure, Success}
-import encry.EncryApp.encrySettings
+import encry.EncryApp._
 
 class ConsolePromptListener extends Actor with ScorexLogging {
 
   import ConsolePromptListener._
+
+  override def preStart(): Unit = if (encrySettings.nodeSettings.enableCLI) cliListener ! StartListening
 
   override def receive: Receive = {
     case StartListening =>

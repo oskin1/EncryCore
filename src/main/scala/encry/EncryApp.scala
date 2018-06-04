@@ -87,7 +87,7 @@ object EncryApp extends App with ScorexLogging {
 
   lazy val miner: ActorRef = system.actorOf(Props[EncryMiner], "miner")
 
-  val cliListener: ActorRef = system.actorOf(Props[ConsolePromptListener], "cliListener")
+  lazy val cliListener: ActorRef = system.actorOf(Props[ConsolePromptListener], "cliListener")
 
   val scanner: ActorRef = system.actorOf(EncryScanner.props(), "scanner")
 
@@ -111,14 +111,10 @@ object EncryApp extends App with ScorexLogging {
     case _ => Escalate
   }
 
-  if (encrySettings.nodeSettings.mining && encrySettings.nodeSettings.offlineGeneration) miner ! StartMining
-
   if (encrySettings.testingSettings.transactionGeneration) {
     val transactionGenerator: ActorRef = system.actorOf(Props[TransactionGenerator], "tx-generator")
     transactionGenerator ! StartGeneration
   }
-
-  if (encrySettings.nodeSettings.enableCLI) cliListener ! StartListening
 
   def forceStopApplication(code: Int = 0): Nothing = sys.exit(code)
 }
