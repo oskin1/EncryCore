@@ -43,12 +43,12 @@ object EncryApp extends App with ScorexLogging {
   lazy val encrySettings: EncryAppSettings = EncryAppSettings.read(args.headOption)
 
   lazy val settings: ScorexSettings = encrySettings.scorexSettings
+  require(settings.network.agentName.length <= 50)
 
   implicit val system: ActorSystem = ActorSystem(settings.network.agentName)
   implicit val materializer: ActorMaterializer = ActorMaterializer()
   implicit val ec: ExecutionContextExecutor = system.dispatcher
 
-  require(settings.network.agentName.length <= 50)
   lazy val bindAddress: InetSocketAddress = settings.restApi.bindAddress
 
   lazy val timeProvider: NetworkTimeProvider = new NetworkTimeProvider(settings.ntp)
