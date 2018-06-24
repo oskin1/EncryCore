@@ -5,8 +5,6 @@ import akka.http.scaladsl.server.Route
 import akka.pattern.ask
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport
 import encry.account.{Address, Portfolio}
-import encry.local.scanner.EncryScanner.{GetIndexReader, IndexReader}
-import encry.local.scanner.storage.EncryIndexReader
 import encry.settings.Algos
 import encry.utils.BalanceCalculator
 import encry.view.EncryViewReadersHolder.{GetReaders, Readers}
@@ -20,7 +18,6 @@ import scala.concurrent.Future
 
 case class StateInfoApiRoute(readersHolder: ActorRef,
                              nodeViewActorRef: ActorRef,
-                             scannerRef: ActorRef,
                              restApiSettings: RESTApiSettings,
                              stateMode: StateMode)(implicit val context: ActorRefFactory)
   extends EncryBaseApiRoute with FailFastCirceSupport {
@@ -35,11 +32,7 @@ case class StateInfoApiRoute(readersHolder: ActorRef,
 
   private def getState: Future[UtxoStateReader] = (readersHolder ? GetReaders).mapTo[Readers].map(_.s.get)
 
-  private def getIndex: Future[EncryIndexReader] = (scannerRef ? GetIndexReader).mapTo[IndexReader].map(_.reader)
-
-  private def getBoxIdsByAddress(address: Address): Future[Option[Seq[ADKey]]] = getIndex.map {
-    _.boxIdsByAddress(address)
-  }
+  private def getBoxIdsByAddress(address: Address): Future[Option[Seq[ADKey]]] = ???
 
   private def getBoxById(id: ADKey): Future[Option[Json]] = getState.map(_.boxById(id).map(_.asJson))
 

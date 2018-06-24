@@ -164,6 +164,7 @@ class EncryNodeViewSynchronizer(syncInfoSpec: EncrySyncInfoMessageSpec.type) ext
   def onSyntacticallySuccessfulModifier: Receive = {
     case SyntacticallySuccessfulModifier(mod) if (mod.isInstanceOf[EncryBlockHeader] || mod.isInstanceOf[EncryBlockPayload] || mod.isInstanceOf[ADProofs]) &&
       historyReaderOpt.exists(_.isHeadersChainSynced) => broadcastModifierInv(mod)
+    case SyntacticallySuccessfulModifier(_) =>
   }
 
   def onCheckModifiersToDownload: Receive = {

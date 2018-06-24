@@ -9,7 +9,7 @@ import akka.http.scaladsl.server.Route
 import akka.stream.ActorMaterializer
 import encry.api.http.routes.{HistoryApiRoute, InfoApiRoute, StateInfoApiRoute, TransactionsApiRoute}
 import encry.api.http.{ApiRoute, CompositeHttpService, PeersApiRoute, UtilsApiRoute}
-import encry.local.scanner.EncryScanner
+import encry.local.BlockListener
 import encry.modifiers.EncryPersistentModifier
 import encry.modifiers.mempool.EncryBaseTransaction
 import encry.modifiers.state.box.proposition.EncryProposition
@@ -69,7 +69,7 @@ object EncryExplorerApp extends App with ScorexLogging {
   lazy val nodeViewSynchronizer: ActorRef =
     system.actorOf(Props(classOf[EncryNodeViewSynchronizer], EncrySyncInfoMessageSpec), "nodeViewSynchronizer")
 
-  val scanner: ActorRef = system.actorOf(EncryScanner.props(), "scanner")
+  val blockListener: ActorRef = system.actorOf(Props[BlockListener], "blockListener")
 
   val apiRoutes: Seq[ApiRoute] = Seq(
     UtilsApiRoute(settings.restApi),
@@ -77,7 +77,7 @@ object EncryExplorerApp extends App with ScorexLogging {
     InfoApiRoute(readersHolder, peerManager, settings, nodeId, timeProvider),
     HistoryApiRoute(readersHolder, settings, nodeId, settings.node.stateMode),
     TransactionsApiRoute(readersHolder, nodeViewHolder, settings.restApi, settings.node.stateMode),
-    StateInfoApiRoute(readersHolder, nodeViewHolder, scanner, settings.restApi, settings.node.stateMode)
+    StateInfoApiRoute(readersHolder, nodeViewHolder, settings.restApi, settings.node.stateMode)
   )
 
   val combinedRoute: Route = CompositeHttpService(system, apiRoutes, settings.restApi, swaggerConfig).compositeRoute
@@ -90,8 +90,6 @@ object EncryExplorerApp extends App with ScorexLogging {
     withinTimeRange = 60.seconds) {
     case _ => Escalate
   }
-
-  //if (settings.node.sendStat) system.actorOf(Props[StatsSender], "statsSender")
 
   def forceStopApplication(code: Int = 0): Nothing = sys.exit(code)
 }
