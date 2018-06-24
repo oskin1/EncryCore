@@ -5,7 +5,7 @@ import java.net.InetSocketAddress
 import akka.actor.Actor
 import akka.pattern.ask
 import akka.util.Timeout
-import encry.EncryApp._
+import encry.EncryExplorerApp._
 import encry.network.message.{GetPeersSpec, Message, PeersSpec}
 import shapeless.syntax.typeable._
 

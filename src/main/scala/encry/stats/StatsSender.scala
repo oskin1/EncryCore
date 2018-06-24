@@ -4,7 +4,7 @@ import java.io.File
 import java.util
 
 import akka.actor.Actor
-import encry.EncryApp.{settings, timeProvider}
+import encry.EncryExplorerApp.{settings, timeProvider}
 import encry.modifiers.history.block.EncryBlock
 import encry.modifiers.history.block.header.EncryBlockHeader
 import encry.network.EncryNodeViewSynchronizer.ReceivableMessages.SemanticallySuccessfulModifier

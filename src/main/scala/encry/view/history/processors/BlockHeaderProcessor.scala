@@ -1,7 +1,7 @@
 package encry.view.history.processors
 
 import com.google.common.primitives.Ints
-import encry.EncryApp
+import encry.EncryExplorerApp
 import encry.consensus.History.ProgressInfo
 import encry.consensus.{ModifierSemanticValidity, _}
 import encry.modifiers.EncryPersistentModifier
@@ -94,7 +94,7 @@ trait BlockHeaderProcessor extends DownloadProcessor with ScorexLogging {
         ProgressInfo(None, Seq.empty, toProcess, toDownload(h))
       case None =>
         log.error("Should always have best header after header application")
-        EncryApp.forceStopApplication()
+        EncryExplorerApp.forceStopApplication()
     }
   }
 

@@ -11,7 +11,7 @@ import encry.modifiers.mempool.EncryBaseTransaction
 import encry.modifiers.state.box.EncryBaseBox
 import encry.settings.{Algos, Constants, EncryAppSettings}
 import encry.storage.codec.FixLenComplexValueCodec
-import encry.EncryApp._
+import encry.EncryExplorerApp._
 import io.circe.Json
 import io.circe.syntax._
 import io.iohk.iodb.{ByteArrayWrapper, LSMStore, Store}

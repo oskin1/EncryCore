@@ -3,7 +3,7 @@ package encry.network
 import java.net.InetSocketAddress
 
 import akka.actor.Actor
-import encry.EncryApp._
+import encry.EncryExplorerApp._
 import encry.consensus.{HistoryReader, SyncInfo}
 import encry.modifiers.history.ADProofs
 import encry.modifiers.history.block.header.EncryBlockHeader

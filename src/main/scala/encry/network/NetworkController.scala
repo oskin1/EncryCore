@@ -8,7 +8,7 @@ import akka.io.Tcp._
 import akka.io.{IO, Tcp}
 import akka.pattern.ask
 import akka.util.Timeout
-import encry.EncryApp._
+import encry.EncryExplorerApp._
 import encry.view.history.EncrySyncInfoMessageSpec
 import encry.network.message.Message.MessageCode
 import encry.network.message.{Message, MessageHandler}

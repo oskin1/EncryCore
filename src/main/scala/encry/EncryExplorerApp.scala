@@ -7,14 +7,8 @@ import akka.actor.{ActorRef, ActorSystem, OneForOneStrategy, Props}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Route
 import akka.stream.ActorMaterializer
+import encry.api.http.routes.{HistoryApiRoute, InfoApiRoute, StateInfoApiRoute, TransactionsApiRoute}
 import encry.api.http.{ApiRoute, CompositeHttpService, PeersApiRoute, UtilsApiRoute}
-import encry.api.http.routes.{StateInfoApiRoute, HistoryApiRoute, InfoApiRoute, TransactionsApiRoute}
-import encry.cli.ConsolePromptListener
-import encry.cli.ConsolePromptListener.StartListening
-import encry.local.TransactionGenerator
-import encry.local.TransactionGenerator.StartGeneration
-import encry.local.miner.EncryMiner
-import encry.local.miner.EncryMiner.StartMining
 import encry.local.scanner.EncryScanner
 import encry.modifiers.EncryPersistentModifier
 import encry.modifiers.mempool.EncryBaseTransaction
@@ -23,7 +17,6 @@ import encry.network.message._
 import encry.network.peer.PeerManager
 import encry.network.{EncryNodeViewSynchronizer, NetworkController, UPnP}
 import encry.settings.{Algos, EncryAppSettings}
-import encry.stats.StatsSender
 import encry.utils.{NetworkTimeProvider, ScorexLogging}
 import encry.view.history.EncrySyncInfoMessageSpec
 import encry.view.{EncryNodeViewHolder, EncryViewReadersHolder}
@@ -32,7 +25,7 @@ import scala.concurrent.ExecutionContextExecutor
 import scala.concurrent.duration._
 import scala.io.Source
 
-object EncryApp extends App with ScorexLogging {
+object EncryExplorerApp extends App with ScorexLogging {
 
   type P = EncryProposition
   type TX = EncryBaseTransaction
@@ -76,17 +69,13 @@ object EncryApp extends App with ScorexLogging {
   lazy val nodeViewSynchronizer: ActorRef =
     system.actorOf(Props(classOf[EncryNodeViewSynchronizer], EncrySyncInfoMessageSpec), "nodeViewSynchronizer")
 
-  lazy val miner: ActorRef = system.actorOf(Props[EncryMiner], "miner")
-
-  val cliListener: ActorRef = system.actorOf(Props[ConsolePromptListener], "cliListener")
-
   val scanner: ActorRef = system.actorOf(EncryScanner.props(), "scanner")
 
   val apiRoutes: Seq[ApiRoute] = Seq(
     UtilsApiRoute(settings.restApi),
     PeersApiRoute(peerManager, networkController, settings.restApi),
-    InfoApiRoute(readersHolder, miner, peerManager, settings, nodeId, timeProvider),
-    HistoryApiRoute(readersHolder, miner, settings, nodeId, settings.node.stateMode),
+    InfoApiRoute(readersHolder, peerManager, settings, nodeId, timeProvider),
+    HistoryApiRoute(readersHolder, settings, nodeId, settings.node.stateMode),
     TransactionsApiRoute(readersHolder, nodeViewHolder, settings.restApi, settings.node.stateMode),
     StateInfoApiRoute(readersHolder, nodeViewHolder, scanner, settings.restApi, settings.node.stateMode)
   )
@@ -98,17 +87,11 @@ object EncryApp extends App with ScorexLogging {
 
   def commonSupervisorStrategy: OneForOneStrategy = OneForOneStrategy(
     maxNrOfRetries = 5,
-    withinTimeRange = 60 seconds) {
+    withinTimeRange = 60.seconds) {
     case _ => Escalate
   }
 
-  if (settings.node.sendStat) system.actorOf(Props[StatsSender], "statsSender")
-
-  if (settings.node.mining && settings.node.offlineGeneration) miner ! StartMining
-
-  if (settings.testing.transactionGeneration) system.actorOf(Props[TransactionGenerator], "tx-generator") ! StartGeneration
-
-  if (settings.node.enableCLI) cliListener ! StartListening
+  //if (settings.node.sendStat) system.actorOf(Props[StatsSender], "statsSender")
 
   def forceStopApplication(code: Int = 0): Nothing = sys.exit(code)
 }

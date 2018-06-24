@@ -3,7 +3,6 @@ package encry.api.http.routes
 import akka.actor.{ActorRef, ActorRefFactory}
 import akka.http.scaladsl.server.Route
 import akka.pattern.ask
-import encry.local.miner.EncryMiner.{GetMinerStatus, MinerStatus}
 import encry.modifiers.history.block.EncryBlock
 import encry.modifiers.history.block.header.EncryBlockHeader
 import encry.settings.EncryAppSettings
@@ -19,8 +18,10 @@ import scorex.crypto.encode.Base58
 
 import scala.concurrent.Future
 
-case class HistoryApiRoute(readersHolder: ActorRef, miner: ActorRef, appSettings: EncryAppSettings,
-                           nodeId: Array[Byte], stateMode: StateMode)(implicit val context: ActorRefFactory)
+case class HistoryApiRoute(readersHolder: ActorRef,
+                           appSettings: EncryAppSettings,
+                           nodeId: Array[Byte],
+                           stateMode: StateMode)(implicit val context: ActorRefFactory)
   extends EncryBaseApiRoute with ScorexLogging {
 
   override val route: Route = pathPrefix("history") {
@@ -29,8 +30,7 @@ case class HistoryApiRoute(readersHolder: ActorRef, miner: ActorRef, appSettings
     getBlockIdsAtHeightR ~
     getBlockHeaderByHeaderIdR ~
     getBlockTransactionsByHeaderIdR ~
-    getFullBlockByHeaderIdR ~
-    candidateBlockR
+    getFullBlockByHeaderIdR
   }
 
   override val settings: RESTApiSettings = appSettings.restApi
@@ -71,10 +71,6 @@ case class HistoryApiRoute(readersHolder: ActorRef, miner: ActorRef, appSettings
 
   def getBlockTransactionsByHeaderIdR: Route = (modifierId & pathPrefix("transactions") & get) { id =>
     getFullBlockByHeaderId(id).map(_.map(_.transactions.map(_.asJson).asJson)).okJson()
-  }
-
-  def candidateBlockR: Route = (path("candidateBlock") & pathEndOrSingleSlash & get) {
-    (miner ? GetMinerStatus).mapTo[MinerStatus].map(_.json).okJson()
   }
 
   def getFullBlockByHeaderIdR: Route = (modifierId & get) { id =>

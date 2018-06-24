@@ -3,7 +3,6 @@ package encry.api.http.routes
 import akka.actor.{ActorRef, ActorRefFactory}
 import akka.http.scaladsl.server.Route
 import akka.pattern.ask
-import encry.local.miner.EncryMiner.{GetMinerStatus, MinerStatus}
 import encry.network.Handshake
 import encry.network.peer.PeerManager.ReceivableMessages.GetConnectedPeers
 import encry.settings.{Algos, Constants, EncryAppSettings, RESTApiSettings}
@@ -16,7 +15,6 @@ import scorex.crypto.encode.Base58
 import scala.concurrent.Future
 
 case class InfoApiRoute(readersHolder: ActorRef,
-                        miner: ActorRef,
                         peerManager: ActorRef,
                         appSettings: EncryAppSettings,
                         nodeId: Array[Byte],
@@ -29,15 +27,13 @@ case class InfoApiRoute(readersHolder: ActorRef,
 
   override val route: Route = (path("info") & get) {
     val nodeUptime = timeProvider.time() - launchTime
-    val minerInfoF = getMinerInfo
     val connectedPeersF = getConnectedPeers
     val readersF: Future[Readers] = (readersHolder ? GetReaders).mapTo[Readers]
     (for {
-      minerInfo <- minerInfoF
       connectedPeers <- connectedPeersF
       readers <- readersF
     } yield {
-      InfoApiRoute.makeInfoJson(nodeId, minerInfo, connectedPeers, readers, getStateType, getNodeName, nodeUptime)
+      InfoApiRoute.makeInfoJson(nodeId, connectedPeers, readers, getStateType, getNodeName, nodeUptime)
     }).okJson()
   }
 
@@ -46,14 +42,11 @@ case class InfoApiRoute(readersHolder: ActorRef,
   private def getStateType: String = appSettings.node.stateMode.verboseName
 
   private def getNodeName: String = appSettings.network.nodeName
-
-  private def getMinerInfo: Future[MinerStatus] = (miner ? GetMinerStatus).mapTo[MinerStatus]
 }
 
 object InfoApiRoute {
 
   def makeInfoJson(nodeId: Array[Byte],
-                   minerInfo: MinerStatus,
                    connectedPeersLength: Int,
                    readers: Readers,
                    stateType: String,
@@ -75,7 +68,6 @@ object InfoApiRoute {
       "unconfirmedCount" -> unconfirmedCount.asJson,
       "stateType" -> stateType.asJson,
       "stateVersion" -> stateVersion.asJson,
-      "isMining" -> minerInfo.isMining.asJson,
       "peersCount" -> connectedPeersLength.asJson,
       "uptime" -> nodeUptime.asJson
     ).asJson

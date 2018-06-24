@@ -8,9 +8,9 @@ import akka.io.Tcp
 import akka.io.Tcp._
 import akka.util.{ByteString, CompactByteString}
 import com.google.common.primitives.Ints
-import encry.EncryApp
+import encry.EncryExplorerApp
 import encry.network.PeerConnectionHandler.{AwaitingHandshake, CommunicationState, WorkingCycle}
-import encry.EncryApp._
+import encry.EncryExplorerApp._
 import encry.network.message.MessageHandler
 import encry.settings.NetworkSettings
 import PeerConnectionHandler._
@@ -31,7 +31,7 @@ class PeerConnectionHandler(messagesHandler: MessageHandler,
 
   context watch connection
 
-  val settings: NetworkSettings = EncryApp.settings.network
+  val settings: NetworkSettings = EncryExplorerApp.settings.network
   var receivedHandshake: Option[Handshake] = None
   var selfPeer: Option[ConnectedPeer] = None
   var handshakeSent = false

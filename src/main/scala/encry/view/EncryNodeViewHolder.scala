@@ -3,8 +3,8 @@ package encry.view
 import java.io.File
 
 import akka.actor.{Actor, Props}
-import encry.{EncryApp, ModifierId, ModifierTypeId, VersionTag}
-import encry.EncryApp._
+import encry.{EncryExplorerApp, ModifierId, ModifierTypeId, VersionTag}
+import encry.EncryExplorerApp._
 import encry.consensus.History.ProgressInfo
 import encry.modifiers._
 import encry.modifiers.history.block.header.{EncryBlockHeader, EncryBlockHeaderSerializer}
@@ -185,7 +185,7 @@ class EncryNodeViewHolder[StateType <: EncryState[StateType]] extends Actor with
       case Failure(e) =>
         log.error("Rollback failed: ", e)
         context.system.eventStream.publish(RollbackFailed(branchingPointOpt))
-        EncryApp.forceStopApplication(500)
+        EncryExplorerApp.forceStopApplication(500)
     }
   }
 
@@ -240,14 +240,14 @@ class EncryNodeViewHolder[StateType <: EncryState[StateType]] extends Actor with
       else EncryState.generateGenesisUtxoState(stateDir, Some(self))._1
     }.asInstanceOf[StateType]
     val history: EncryHistory = EncryHistory.readOrGenerate(settings, timeProvider)
-    val wallet: EncryWallet = EncryWallet.readOrGenerate(settings)
+    val wallet: EncryWallet = EncryWallet.readOrGenerate
     val memPool: EncryMempool = EncryMempool.empty(settings, timeProvider)
     NodeView(history, state, wallet, memPool)
   }
 
   def restoreState(): Option[NodeView] = if (!EncryHistory.getHistoryDir(settings).listFiles.isEmpty) {
     val history: EncryHistory = EncryHistory.readOrGenerate(settings, timeProvider)
-    val wallet: EncryWallet = EncryWallet.readOrGenerate(settings)
+    val wallet: EncryWallet = EncryWallet.readOrGenerate
     val memPool: EncryMempool = EncryMempool.empty(settings, timeProvider)
     val state: StateType = restoreConsistentState(EncryState.readOrGenerate(settings, Some(self)).asInstanceOf[StateType], history)
     Some(NodeView(history, state, wallet, memPool))
@@ -299,7 +299,7 @@ class EncryNodeViewHolder[StateType <: EncryState[StateType]] extends Actor with
     }
   }.recoverWith { case e =>
     log.error("Failed to recover state.", e)
-    EncryApp.forceStopApplication(500)
+    EncryExplorerApp.forceStopApplication(500)
   }.get
 }
 

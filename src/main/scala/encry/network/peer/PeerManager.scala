@@ -3,7 +3,7 @@ package encry.network.peer
 import java.net.InetSocketAddress
 
 import akka.actor.Actor
-import encry.EncryApp._
+import encry.EncryExplorerApp._
 import PeerManager.ReceivableMessages._
 import encry.network.{Handshake, SendingStrategy}
 import encry.network.EncryNodeViewSynchronizer.ReceivableMessages.{DisconnectedPeer, HandshakedPeer}

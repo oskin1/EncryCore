@@ -4,7 +4,7 @@ import java.io.File
 
 import akka.actor.ActorRef
 import com.google.common.primitives.{Ints, Longs}
-import encry.EncryApp.settings
+import encry.EncryExplorerApp.settings
 import encry.contracts.EncryStateView
 import encry.modifiers.EncryPersistentModifier
 import encry.modifiers.history.ADProofs
